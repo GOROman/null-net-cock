@@ -6,6 +6,7 @@
 
 #include <errno.h>
 #include <poll.h>
+#include <sys/ioctl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,7 +24,7 @@ void term_set_code(struct term *t, enum term_code code) {
     t->from_term = iconv_open("UTF-8", name);
 }
 
-void term_init(struct term *t, int fd, int no, int notify_rd, const char *code) {
+void term_init(struct term *t, int fd, int no, int notify_rd, const char *code, bool telnet) {
     memset(t, 0, sizeof *t);
     t->fd = fd;
     t->no = no;
@@ -31,7 +32,9 @@ void term_init(struct term *t, int fd, int no, int notify_rd, const char *code) 
     t->to_term = t->from_term = (iconv_t)-1;
     t->rows = 24;
     t->last_input = time(NULL);
+    t->telnet = telnet;
     term_set_code(t, strcmp(code, "utf8") == 0 ? CODE_UTF8 : CODE_SJIS);
+    if (!telnet) return;
     /* サーバー側でエコーする (WILL ECHO)、GA は使わない (WILL SGA) */
     static const unsigned char greet[] = {IAC, WILL, 1, IAC, WILL, 3, IAC, DO, 3};
     term_write_raw(t, greet, sizeof greet);
@@ -93,7 +96,7 @@ int term_print(struct term *t, const char *s) {
     size_t e = 0;
     for (size_t i = 0; i < outlen; i++) {
         esc[e++] = (unsigned char)out[i];
-        if ((unsigned char)out[i] == IAC) esc[e++] = IAC;
+        if ((unsigned char)out[i] == IAC && t->telnet) esc[e++] = IAC;
     }
     int r = term_write_raw(t, esc, e);
     free(crlf);
@@ -112,9 +115,33 @@ int term_printf(struct term *t, const char *fmt, ...) {
 }
 
 /* telnet の制御を取り除いて、アプリ向けのバイトだけ返す */
+/* シリアル: そのまま受け取り、キャリア断の「NO CARRIER」を探す (バイナリ転送中は探さない) */
+static void serial_filter(struct term *t, const unsigned char *in, size_t n) {
+    for (size_t i = 0; i < n; i++) {
+        unsigned char b = in[i];
+        if ((t->carrier & CARRIER_TEXT) && !t->binary) {
+            size_t l = strlen(t->tail);
+            if (l >= sizeof t->tail - 1) {
+                memmove(t->tail, t->tail + 1, l);
+                l--;
+            }
+            t->tail[l] = b ? (char)b : ' ';
+            t->tail[l + 1] = 0;
+            if (strstr(t->tail, "NO CARRIER")) t->closed = true;
+        }
+        if (!t->binary) {
+            if (t->after_cr && (b == 0 || b == '\n')) { t->after_cr = false; continue; }
+            t->after_cr = b == '\r';
+        }
+        if (t->in_len < sizeof t->in) t->in[t->in_len++] = b;
+    }
+}
+
 static void telnet_filter(struct term *t, const unsigned char *in, size_t n) {
-    static const unsigned char dont_reply[3] = {0};
-    (void)dont_reply;
+    if (!t->telnet) {
+        serial_filter(t, in, n);
+        return;
+    }
     for (size_t i = 0; i < n; i++) {
         unsigned char b = in[i];
         switch (t->telnet_state) {
@@ -148,6 +175,16 @@ static void telnet_filter(struct term *t, const unsigned char *in, size_t n) {
     }
 }
 
+/* シリアルで DCD を見るとき、キャリアが落ちていたら true (調べられないポートは落ちていないことにする) */
+static bool carrier_lost(struct term *t) {
+    if (t->closed) return true;
+    if (t->telnet || !(t->carrier & CARRIER_DCD)) return false;
+    int st;
+    if (ioctl(t->fd, TIOCMGET, &st) < 0) return false;
+    if (!(st & TIOCM_CD)) t->closed = true;
+    return t->closed;
+}
+
 /* 入力か通知が来るまで待つ。1: 入力あり 2: 通知あり 負: エラー */
 static int wait_input(struct term *t) {
     for (;;) {
@@ -166,6 +203,7 @@ static int wait_input(struct term *t) {
             if (errno == EINTR) continue;
             return T_DISCONNECT;
         }
+        if (carrier_lost(t)) return T_DISCONNECT;
         if (r == 0) continue;
         if (pf[1].revents & POLLIN) {
             char c;
@@ -181,6 +219,7 @@ static int wait_input(struct term *t) {
             }
             t->last_input = time(NULL);
             telnet_filter(t, buf, (size_t)n);
+            if (t->closed) return T_DISCONNECT;
             if (t->in_len > 0) return 1;
         }
     }
@@ -358,7 +397,7 @@ int term_write_bin(struct term *t, const void *buf, size_t len) {
     size_t k = 0;
     for (size_t i = 0; i < len; i++) {
         out[k++] = p[i];
-        if (p[i] == IAC) out[k++] = IAC;
+        if (p[i] == IAC && t->telnet) out[k++] = IAC;
         if (k >= sizeof out - 2) {
             if (term_write_raw(t, out, k) < 0) return T_DISCONNECT;
             k = 0;
@@ -370,7 +409,7 @@ int term_write_bin(struct term *t, const void *buf, size_t len) {
 /* telnet の BINARY オプション (0) を両方向で使う / やめる */
 void term_set_binary(struct term *t, bool on) {
     unsigned char seq[] = {IAC, on ? WILL : WONT, 0, IAC, on ? DO : DONT, 0};
-    term_write_raw(t, seq, sizeof seq);
+    if (t->telnet) term_write_raw(t, seq, sizeof seq);
     t->binary = on;
     t->after_cr = false;
 }

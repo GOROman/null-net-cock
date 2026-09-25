@@ -10,16 +10,38 @@
 
 struct online g_online[MAX_LINES + 1];
 
+static bool is_modem_line(int no) {
+    for (int i = 0; i < g_cfg.nmodems; i++)
+        if (g_cfg.modems[i].line == no) return true;
+    return false;
+}
+
+static int claim(int no, const char *peer);
+
 /* 空いている回線を確保する。満杯なら 0 */
 int online_alloc(const char *peer) {
     pthread_mutex_lock(&g_lock);
     int no = 0;
     for (int i = 1; i <= g_cfg.max_lines && i <= MAX_LINES; i++) {
-        if (!g_online[i].used) {
+        if (!g_online[i].used && !is_modem_line(i)) {
             no = i;
             break;
         }
     }
+    no = claim(no, peer);
+    pthread_mutex_unlock(&g_lock);
+    return no;
+}
+
+int online_alloc_at(int no, const char *peer) {
+    pthread_mutex_lock(&g_lock);
+    no = no >= 1 && no <= MAX_LINES && !g_online[no].used ? claim(no, peer) : 0;
+    pthread_mutex_unlock(&g_lock);
+    return no;
+}
+
+/* g_lock を持って呼ぶ */
+static int claim(int no, const char *peer) {
     if (no) {
         struct online *o = &g_online[no];
         memset(o, 0, sizeof *o);
@@ -37,7 +59,6 @@ int online_alloc(const char *peer) {
             o->notify_rd = o->notify_wr = -1;
         }
     }
-    pthread_mutex_unlock(&g_lock);
     return no;
 }
 

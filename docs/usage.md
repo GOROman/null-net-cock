@@ -17,6 +17,25 @@
 | `mes_file` | NET-COCK の `MES.TXT` | なし (内蔵の文言) |
 | `sysmes_file` | NET-COCK の `SYS_MES.DAT` (初回起動時に取り込む) | なし |
 
+## モデム回線
+
+シリアル (USB-UART など) につないだモデムで着信を受けられます。設定ファイルに `modem<回線番号>.<項目>` の形で書きます (`null-net-cock.conf.example` を参照)。
+
+```
+modem1.path = /dev/cu.usbserial-XXXX
+modem1.baud = 9600
+modem1.init = ATZ; ATE0V1Q0X4&C1&D2S0=0
+modem1.code = sjis
+```
+
+- 起動すると初期化コマンドを 1 つずつ送って `OK` を待ち、着信を待ちます
+- `RING` が `rings` 回来たら `ATA` で応答し、`CONNECT` の後ろの速度 (例 `2400/V42BIS`) を LOG に残します
+- キャリア断は DCD と、受信した `NO CARRIER` の両方で見ます (DCD の配線が無いケーブルは `carrier = text`)
+- セッションが終わると DTR を落として切り (`hangup = escape` なら `+++` と `ATH0`)、初期化からやり直します
+- モデムの取りこぼしを避けるため、OK の後は 200ms (ATZ / AT&F の後は 1 秒)、RING の後は 300ms 待ってから次を送ります。ATA の後にまた RING が来たら ATA を送り直します
+- モデムに割り当てた回線番号は TCP の接続には使いません
+- AT コマンドのやり取りはシステムログ (`data/system.log`) に残ります
+
 ## ログイン
 
 - `ID:` には ID 番号 (`10`)、ネットワーク ID 付き (`TEST0010`)、ログネームのどれでも入れられます

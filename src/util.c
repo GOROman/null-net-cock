@@ -23,6 +23,41 @@ struct config g_cfg = {
 pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t log_lock = PTHREAD_MUTEX_INITIALIZER;
 
+/* modem<回線>.<項目> = 値 */
+static void modem_key(int line, const char *dot, const char *val) {
+    if (!dot || line < 1 || line > MAX_LINES) return;
+    const char *k = dot + 1;
+    struct modem_cfg *m = NULL;
+    for (int i = 0; i < g_cfg.nmodems; i++)
+        if (g_cfg.modems[i].line == line) m = &g_cfg.modems[i];
+    if (!m) {
+        if (g_cfg.nmodems >= MAX_MODEMS) return;
+        m = &g_cfg.modems[g_cfg.nmodems++];
+        *m = (struct modem_cfg){.line = line, .baud = 9600, .flow = "hardware", .rings = 1, .carrier = "both",
+                                .hangup = "dtr", .connect_timeout = 60, .connect_delay_ms = 500};
+    }
+    if (!strcmp(k, "path")) snprintf(m->path, sizeof m->path, "%s", val);
+    else if (!strcmp(k, "baud")) m->baud = atoi(val);
+    else if (!strcmp(k, "flow")) snprintf(m->flow, sizeof m->flow, "%s", val);
+    else if (!strcmp(k, "answer")) m->answer_auto = !strcmp(val, "auto");
+    else if (!strcmp(k, "rings")) m->rings = atoi(val);
+    else if (!strcmp(k, "carrier")) snprintf(m->carrier, sizeof m->carrier, "%s", val);
+    else if (!strcmp(k, "hangup")) snprintf(m->hangup, sizeof m->hangup, "%s", val);
+    else if (!strcmp(k, "connect_timeout")) m->connect_timeout = atoi(val);
+    else if (!strcmp(k, "connect_delay_ms")) m->connect_delay_ms = atoi(val);
+    else if (!strcmp(k, "code")) snprintf(m->code, sizeof m->code, "%s", val);
+    else if (!strcmp(k, "init")) {
+        /* 「;」で区切って複数書ける */
+        char buf[1024];
+        snprintf(buf, sizeof buf, "%s", val);
+        m->ninit = 0;
+        for (char *save, *p = strtok_r(buf, ";", &save); p && m->ninit < MAX_INIT; p = strtok_r(NULL, ";", &save)) {
+            str_trim(p);
+            if (*p) snprintf(m->init[m->ninit++], sizeof m->init[0], "%s", p);
+        }
+    }
+}
+
 /* 「キー = 値」の行を読む。# 以降はコメント */
 int config_load(const char *path) {
     FILE *f = fopen(path, "r");
@@ -42,9 +77,13 @@ int config_load(const char *path) {
             char *q = strrchr(val, '"');
             if (q) *q = 0;
         }
+        if (!strncmp(key, "modem", 5) && isdigit((unsigned char)key[5])) {
+            modem_key(atoi(key + 5), strchr(key, '.'), val);
+            continue;
+        }
 #define STR(name) if (!strcmp(key, #name)) snprintf(g_cfg.name, sizeof g_cfg.name, "%s", val);
 #define INT(name) if (!strcmp(key, #name)) g_cfg.name = atoi(val);
-        STR(bbs_name) STR(net_id) STR(data_dir) STR(listen) STR(default_code) STR(mes_file) STR(sysmes_file)
+        STR(bbs_name) STR(net_id) STR(data_dir) STR(listen) STR(default_code) STR(mes_file) STR(sysmes_file) STR(mes_esc_file)
         INT(max_lines) INT(idle_timeout) INT(session_minutes) INT(guest_minutes)
 #undef STR
 #undef INT
@@ -52,6 +91,15 @@ int config_load(const char *path) {
     fclose(f);
     if (g_cfg.max_lines < 1) g_cfg.max_lines = 1;
     if (g_cfg.max_lines > MAX_LINES) g_cfg.max_lines = MAX_LINES;
+    for (int i = 0; i < g_cfg.nmodems; i++) {
+        struct modem_cfg *m = &g_cfg.modems[i];
+        if (!m->ninit) {
+            snprintf(m->init[0], sizeof m->init[0], "ATZ");
+            snprintf(m->init[1], sizeof m->init[1], "ATE0V1Q0X4&C1&D2S0=%d", m->answer_auto ? 1 : 0);
+            m->ninit = 2;
+        }
+        if (m->line > g_cfg.max_lines) g_cfg.max_lines = m->line;
+    }
     return 0;
 }
 

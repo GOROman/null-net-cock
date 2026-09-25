@@ -89,7 +89,7 @@ struct logent {
     int line;
     int id;
     char logname[64];
-    char speed[16];
+    char speed[24];
 };
 
 struct application {

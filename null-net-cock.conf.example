@@ -13,3 +13,16 @@ default_code = sjis            # 端末の文字コード: sjis / utf8
 # NET-COCK 付属の文言ファイルを指定すると、元と同じ文言で表示する (Shift_JIS のまま置いてよい)
 #mes_file = /path/to/MES.TXT
 #sysmes_file = /path/to/SYS_MES.DAT
+
+# モデム回線 (USB-UART などのシリアルにつないだモデムで着信を受ける)
+# modem<回線番号>.<項目> の形で書く。その回線番号は TCP では使わない
+#modem1.path = /dev/cu.usbserial-XXXX
+#modem1.baud = 9600                      # DTE 速度
+#modem1.flow = hardware                  # none / hardware / software
+#modem1.init = ATZ; ATE0V1Q0X4&C1&D2S0=0 # 「;」で区切って順に送り、OK を待つ
+#modem1.answer = manual                  # manual: RING で ATA / auto: モデムの自動着信 (init に S0=1 を入れる)
+#modem1.rings = 1                        # 何回目の RING で ATA するか
+#modem1.carrier = both                   # キャリア断の検出: dcd / text ("NO CARRIER") / both
+#modem1.hangup = dtr                     # 切り方: dtr (&D2) / escape (+++ATH0)
+#modem1.connect_timeout = 60             # ATA から CONNECT までの上限 (秒)
+#modem1.code = sjis                      # この回線の文字コード

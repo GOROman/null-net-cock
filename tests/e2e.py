@@ -11,6 +11,18 @@ BIN = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else "./null-net-cock")
 PORT = 16868
 
 
+def wait_port(timeout=10):
+    """サーバーが待ち受けを始めるまで待つ"""
+    end = time.time() + timeout
+    while time.time() < end:
+        try:
+            socket.create_connection(("127.0.0.1", PORT), timeout=1).close()
+            return
+        except OSError:
+            time.sleep(0.1)
+    raise RuntimeError("サーバーが起動しません")
+
+
 class Client:
     def __init__(self):
         self.s = socket.create_connection(("127.0.0.1", PORT), timeout=5)
@@ -61,7 +73,7 @@ def main():
         f.write(f'bbs_name = "TEST-NET"\nlisten = 127.0.0.1:{PORT}\ndata_dir = {tmp}/data\n')
     srv = subprocess.Popen([BIN, "-c", conf], stderr=subprocess.PIPE)
     try:
-        time.sleep(0.5)
+        wait_port()
         # SYSOP でログインしてボードを作り、書き込む
         a = Client()
         a.talk("ID:", "1")
@@ -176,11 +188,11 @@ def main():
         db.close()
         for _ in range(2):
             srv = subprocess.Popen([BIN, "-c", conf], stderr=subprocess.PIPE)
-            time.sleep(0.5)
+            wait_port()
             srv.terminate()
             srv.communicate(timeout=5)
         srv = subprocess.Popen([BIN, "-c", conf], stderr=subprocess.PIPE)
-        time.sleep(0.5)
+        wait_port()
         d = Client()
         d.talk("ID:", "やまだ")
         d.talk("Password:", "PASS")

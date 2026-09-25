@@ -22,6 +22,26 @@
 
 /* ------------------------------------------------------------ 設定 */
 
+#define MAX_MODEMS 8
+#define MAX_INIT 8
+
+/* モデム回線 1 本の設定 (設定ファイルでは modem<回線番号>.<項目> = 値) */
+struct modem_cfg {
+    int line;
+    char path[256];
+    int baud;               /* DTE 速度 */
+    char flow[16];          /* none / hardware / software */
+    char init[MAX_INIT][128];
+    int ninit;
+    bool answer_auto;       /* true: モデムの自動着信 (S0=1)、false: RING で ATA */
+    int rings;              /* 何回目の RING で ATA するか */
+    char carrier[8];        /* dcd / text / both */
+    char hangup[8];         /* dtr / escape */
+    int connect_timeout;    /* 秒 */
+    int connect_delay_ms;
+    char code[8];           /* 文字コード (空なら default_code) */
+};
+
 struct config {
     char bbs_name[128];
     char net_id[16];        /* ネットワーク ID (例: COCK) */
@@ -34,6 +54,9 @@ struct config {
     char default_code[8];   /* 端末の既定の文字コード: sjis / utf8 */
     char mes_file[512];     /* NET-COCK の MES.TXT (指定すると元と同じ文言になる) */
     char sysmes_file[512];  /* NET-COCK の SYS_MES.DAT */
+    char mes_esc_file[512]; /* NET-COCK の MES_ESC.TXT (ESC を使う会員に出す) */
+    struct modem_cfg modems[MAX_MODEMS];
+    int nmodems;
 };
 
 extern struct config g_cfg;
@@ -61,11 +84,15 @@ struct term {
     int rows;               /* 1 ページの行数 */
     bool closed;
     bool binary;            /* バイナリ転送中 (CR の処理をしない) */
+    bool telnet;            /* TCP (telnet) の回線。false はシリアル (モデム) */
+    int carrier;            /* シリアルのキャリア断の検出: CARRIER_DCD / CARRIER_TEXT */
+    char tail[16];          /* 「NO CARRIER」を探すための受信の末尾 */
     bool warned;            /* 持ち時間の予告を出した */
     bool warn_pending;
 };
 
 enum read_flags { RL_MASK = 1, RL_UPPER = 2, RL_RAW = 4 };
+enum { CARRIER_DCD = 1, CARRIER_TEXT = 2 };
 
 /* term_readline などの戻り値 */
 #define T_OK 0
@@ -74,7 +101,7 @@ enum read_flags { RL_MASK = 1, RL_UPPER = 2, RL_RAW = 4 };
 #define T_TIMEUP (-3)
 #define T_KICKED (-4)
 
-void term_init(struct term *t, int fd, int no, int notify_rd, const char *code);
+void term_init(struct term *t, int fd, int no, int notify_rd, const char *code, bool telnet);
 void term_set_code(struct term *t, enum term_code code);
 void term_free(struct term *t);
 int term_write_raw(struct term *t, const void *buf, size_t len);
@@ -113,7 +140,8 @@ struct online {
 
 extern struct online g_online[MAX_LINES + 1];
 
-int online_alloc(const char *peer);
+int online_alloc(const char *peer);          /* TCP 用に空き回線を取る (モデムの回線は除く) */
+int online_alloc_at(int no, const char *peer); /* 決まった回線 (モデム) を取る */
 void online_free(int no);
 void online_set_user(int no, const char *id, const char *handle);
 void online_set_place(int no, const char *place);
@@ -140,8 +168,17 @@ struct conn_arg {
     int fd;
     int no;
     char peer[64];
+    char speed[32];         /* LOG に残す速度 (TCP / 2400/V42BIS など) */
+    bool serial;
+    int carrier;
+    char code[8];
 };
 
-void *session_thread(void *arg);
+void *session_thread(void *arg);   /* TCP: セッションが終わったら切断して回線を返す */
+void session_run(struct conn_arg *ca); /* セッションだけ (モデムの回線から呼ぶ) */
+
+/* ------------------------------------------------------------ モデム */
+
+void modem_start(void);
 
 #endif

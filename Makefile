@@ -14,6 +14,7 @@ build/%.o: src/%.c src/nc.h src/db.h src/msg.h src/session.h src/xfer.h
 test: null-net-cock
 	python3 tests/e2e.py ./null-net-cock
 	python3 tests/xfer.py ./null-net-cock
+	python3 tests/modem.py ./null-net-cock
 
 clean:
 	rm -rf build null-net-cock

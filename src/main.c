@@ -111,6 +111,7 @@ int main(int argc, char **argv) {
     }
     nc_log("%s (null-net-cock %s) を起動しました。TCP %s / 最大 %d 回線", g_cfg.bbs_name, NC_VERSION,
            g_cfg.listen, g_cfg.max_lines);
+    modem_start();
 
     for (;;) {
         struct sockaddr_in peer;
@@ -133,7 +134,7 @@ int main(int argc, char **argv) {
             nc_log("%s: 回線が満杯のため断りました", addr);
             continue;
         }
-        struct conn_arg *ca = malloc(sizeof *ca);
+        struct conn_arg *ca = calloc(1, sizeof *ca);
         ca->fd = fd;
         ca->no = no;
         snprintf(ca->peer, sizeof ca->peer, "%s", addr);

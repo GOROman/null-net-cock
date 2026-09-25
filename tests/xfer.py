@@ -64,6 +64,11 @@ def relay(cli, argv, cwd):
                 except BrokenPipeError:
                     break
         p.wait(timeout=5)
+        # 終わる直前に書いたもの (最後の ACK など) も届ける
+        rest = p.stdout.read()
+        if rest:
+            sock.setblocking(True)
+            sock.sendall(rest.replace(b"\xff", b"\xff\xff"))
     finally:
         sock.setblocking(True)
         sock.settimeout(10)
@@ -83,7 +88,7 @@ def main():
         f.write(payload)
     srv = subprocess.Popen([e2e.BIN, "-c", conf], stderr=None if os.environ.get("VERBOSE") else subprocess.DEVNULL)
     try:
-        time.sleep(0.5)
+        e2e.wait_port()
         a = e2e.Client()
         a.talk("ID:", "1")
         a.talk("Password:", "ABC")

@@ -336,8 +336,9 @@ static void account_logout(struct sess *s, time_t now) {
     int left = u->today_left - (int)(used / 60);
     u->today_left = left < 0 ? 0 : left;
     if (!u->secret) {
-        struct logent e = {s->login_at, now, s->no, u->id, "", "TCP"};
+        struct logent e = {s->login_at, now, s->no, u->id, "", ""};
         snprintf(e.logname, sizeof e.logname, "%s", u->logname);
+        snprintf(e.speed, sizeof e.speed, "%s", s->speed);
         log_add(&e);
     }
     db_save_users();
@@ -346,10 +347,21 @@ static void account_logout(struct sess *s, time_t now) {
 
 void *session_thread(void *arg) {
     struct conn_arg *ca = arg;
+    session_run(ca);
+    close(ca->fd);
+    online_free(ca->no);
+    free(ca);
+    return NULL;
+}
+
+void session_run(struct conn_arg *ca) {
     struct term t;
     struct sess s = {.t = &t, .no = ca->no, .uid = -1};
     snprintf(s.peer, sizeof s.peer, "%s", ca->peer);
-    term_init(&t, ca->fd, ca->no, g_online[ca->no].notify_rd, g_cfg.default_code);
+    snprintf(s.speed, sizeof s.speed, "%s", ca->speed[0] ? ca->speed : "TCP");
+    term_init(&t, ca->fd, ca->no, g_online[ca->no].notify_rd, ca->code[0] ? ca->code : g_cfg.default_code,
+              !ca->serial);
+    t.carrier = ca->carrier;
     nc_log("CH%02d: 接続 %s", ca->no, ca->peer);
 
     int r = login(&s);
@@ -416,8 +428,4 @@ void *session_thread(void *arg) {
     free(s.draft_body);
     free(s.upload);
     term_free(&t);
-    close(ca->fd);
-    online_free(ca->no);
-    free(ca);
-    return NULL;
 }

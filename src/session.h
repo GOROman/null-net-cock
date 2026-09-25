@@ -14,6 +14,7 @@ struct sess {
     int uid;                /* ログイン中の ID (0 = ゲスト) */
     time_t login_at;
     char peer[64];
+    char speed[32];
     /* 直前に読んだメッセージ (F でリプライするため) */
     int last_board, last_seq;
     /* 書きかけの文章 (Q で抜けたとき残す) */
