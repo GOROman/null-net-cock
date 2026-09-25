@@ -40,6 +40,17 @@ static int listen_tcp(const char *spec) {
     return s;
 }
 
+/* SIGTERM / SIGINT を受けたら、データを保存して終わる */
+static void *signal_thread(void *arg) {
+    sigset_t *set = arg;
+    int sig;
+    sigwait(set, &sig);
+    pthread_mutex_lock(&g_lock);
+    db_save_all();
+    nc_log("シグナル %d を受けたので、データを保存して終了します", sig);
+    exit(0);
+}
+
 static void usage(const char *prog) {
     fprintf(stderr, "使い方: %s [-c 設定ファイル]\n", prog);
     exit(2);
@@ -57,6 +68,15 @@ int main(int argc, char **argv) {
         return 1;
     }
     signal(SIGPIPE, SIG_IGN);
+    /* 以後に作るスレッドも含めて SIGTERM / SIGINT は signal_thread だけが受ける */
+    static sigset_t sigs;
+    sigemptyset(&sigs);
+    sigaddset(&sigs, SIGTERM);
+    sigaddset(&sigs, SIGINT);
+    sigaddset(&sigs, SIGHUP);
+    pthread_sigmask(SIG_BLOCK, &sigs, NULL);
+    pthread_t sth;
+    pthread_create(&sth, NULL, signal_thread, &sigs);
     mkdir(g_cfg.data_dir, 0755);
 
     if (db_open() < 0) {

@@ -67,7 +67,7 @@ static const struct field msg_fields[] = {
     FLDN(msg, "id", off, F_LONG), FLD(msg, board, F_INT), FLD(msg, seq, F_INT), FLD(msg, t, F_LONG),
     FLD(msg, title, F_STR), FLDN(msg, "sender", from, F_INT), FLD(msg, reply_to, F_INT), FLD(msg, replies, F_INT),
     FLD(msg, len, F_LONG), FLD(msg, reads, F_INT), FLD(msg, dls, F_INT), FLD(msg, deleted, F_BOOL),
-    FLD(msg, fname, F_STR), FLD(msg, fsize, F_LONG),
+    FLD(msg, fname, F_STR), FLD(msg, fsize, F_LONG), FLD(msg, fid, F_LONG),
     FLDN(msg, "to0", to[0], F_INT), FLDN(msg, "to1", to[1], F_INT), FLDN(msg, "to2", to[2], F_INT),
     FLDN(msg, "to3", to[3], F_INT), FLDN(msg, "st0", to_state[0], F_CHAR), FLDN(msg, "st1", to_state[1], F_CHAR),
     FLDN(msg, "st2", to_state[2], F_CHAR), FLDN(msg, "st3", to_state[3], F_CHAR),
@@ -102,6 +102,18 @@ static void create_table(const char *table, const struct field *f, int n, const 
                       f[i].type == F_STR ? "TEXT" : "INTEGER");
     snprintf(sql + k, sizeof sql - (size_t)k, "%s)", extra ? extra : "");
     exec(sql);
+    /* 古いデータベースに無い列を足す */
+    for (int i = 0; i < n; i++) {
+        snprintf(sql, sizeof sql, "SELECT \"%s\" FROM %s LIMIT 0", f[i].name, table);
+        sqlite3_stmt *st;
+        if (sqlite3_prepare_v2(db, sql, -1, &st, NULL) == SQLITE_OK) {
+            sqlite3_finalize(st);
+            continue;
+        }
+        snprintf(sql, sizeof sql, "ALTER TABLE %s ADD COLUMN \"%s\" %s DEFAULT %s", table, f[i].name,
+                 f[i].type == F_STR ? "TEXT" : "INTEGER", f[i].type == F_STR ? "''" : "0");
+        exec(sql);
+    }
 }
 
 static void bind_fields(sqlite3_stmt *st, const struct field *f, int n, const void *rec) {
@@ -424,6 +436,31 @@ char *msg_body(const struct msg *m) {
     return out ? out : strdup("");
 }
 
+long file_add(const void *data, size_t len) {
+    sqlite3_stmt *st;
+    if (sqlite3_prepare_v2(db, "INSERT INTO files (data) VALUES (?)", -1, &st, NULL) != SQLITE_OK) return 0;
+    sqlite3_bind_blob(st, 1, data, (int)len, SQLITE_TRANSIENT);
+    int rc = sqlite3_step(st);
+    sqlite3_finalize(st);
+    return rc == SQLITE_DONE ? (long)sqlite3_last_insert_rowid(db) : 0;
+}
+
+void *file_get(long fid, size_t *len) {
+    sqlite3_stmt *st;
+    void *out = NULL;
+    *len = 0;
+    if (sqlite3_prepare_v2(db, "SELECT data FROM files WHERE id = ?", -1, &st, NULL) != SQLITE_OK) return NULL;
+    sqlite3_bind_int64(st, 1, fid);
+    if (sqlite3_step(st) == SQLITE_ROW) {
+        int n = sqlite3_column_bytes(st, 0);
+        out = malloc((size_t)n + 1);
+        if (n) memcpy(out, sqlite3_column_blob(st, 0), (size_t)n);
+        *len = (size_t)n;
+    }
+    sqlite3_finalize(st);
+    return out;
+}
+
 int board_count(int board) {
     int n = 0;
     for (int i = 0; i < g_nmsgs; i++) if (g_msgs[i].board == board && !g_msgs[i].deleted) n++;
@@ -484,6 +521,8 @@ int filem(void) {
     exec("BEGIN");
     sqlite3_stmt *del = NULL;
     sqlite3_prepare_v2(db, "DELETE FROM bodies WHERE id = ?", -1, &del, NULL);
+    sqlite3_stmt *delf = NULL;
+    sqlite3_prepare_v2(db, "DELETE FROM files WHERE id = ?", -1, &delf, NULL);
     int w = 0;
     for (int i = 0; i < g_nmsgs; i++) {
         struct msg m = g_msgs[i];
@@ -493,6 +532,11 @@ int filem(void) {
                 sqlite3_bind_int64(del, 1, m.off);
                 sqlite3_step(del);
                 sqlite3_reset(del);
+            }
+            if (delf && m.fid) {
+                sqlite3_bind_int64(delf, 1, m.fid);
+                sqlite3_step(delf);
+                sqlite3_reset(delf);
             }
             continue;
         }
@@ -506,6 +550,7 @@ int filem(void) {
         g_msgs[w++] = m;
     }
     if (del) sqlite3_finalize(del);
+    if (delf) sqlite3_finalize(delf);
     exec("COMMIT");
     g_nmsgs = w;
     for (int b = 0; b < MAX_BOARDS; b++) if (g_boards[b].used) g_boards[b].next_seq = next[b];
@@ -640,6 +685,7 @@ int db_open(void) {
     create_table("boards", board_fields, NF(board_fields), ", PRIMARY KEY (no)");
     create_table("titles", msg_fields, NF(msg_fields), NULL);
     exec("CREATE TABLE IF NOT EXISTS bodies (id INTEGER PRIMARY KEY, body TEXT)");
+    exec("CREATE TABLE IF NOT EXISTS files (id INTEGER PRIMARY KEY, data BLOB)");
     exec("CREATE TABLE IF NOT EXISTS pointers (user INTEGER, board INTEGER, ptr INTEGER, bset TEXT, cug TEXT, "
          "PRIMARY KEY (user, board))");
     create_table("log", log_fields, NF(log_fields), NULL);

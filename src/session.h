@@ -19,7 +19,17 @@ struct sess {
     /* 書きかけの文章 (Q で抜けたとき残す) */
     char *draft_title, *draft_body;
     int draft_board;
+    /* 受信したが書き込んでいないファイル (次の書き込みで使える) */
+    unsigned char *upload;
+    size_t upload_len;
+    char upload_name[16];
+    /* BATCH のリスト */
+    struct { int board, seq; } batch[16];
+    int nbatch;
+    bool nonstop;           /* RALL の途中で V を押した */
 };
+
+#define MAX_BATCH 16
 
 #define USER(s) (&g_users[(s)->uid])
 #define IS_GUEST(s) ((s)->uid == 0)
@@ -58,6 +68,9 @@ int cmd_mread(struct sess *s, const char *arg);
 int cmd_mwrite(struct sess *s, const char *arg);
 int cmd_mcheck(struct sess *s, const char *arg);
 int cmd_mbset(struct sess *s, const char *arg);
+int cmd_batch(struct sess *s, const char *arg);
+int cmd_bchange(struct sess *s, const char *arg);
+enum { RB_NORMAL, RB_RALL, RB_NONSTOP };
 int read_board(struct sess *s, int board, int mode);
 int login_mail_notice(struct sess *s);
 void print_board_list(struct sess *s, bool for_write);

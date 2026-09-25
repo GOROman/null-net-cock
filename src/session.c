@@ -108,13 +108,13 @@ static const struct command {
     {"OFF", 0, 74, NULL, false},
     {"BREAD", 0, 53, cmd_bread, false},
     {"BWRITE", 0, 54, cmd_bwrite, false},
-    {"BATCH", 0, 58, NULL, false},
+    {"BATCH", 0, 58, cmd_batch, false},
     {"BSET", 30, 60, cmd_bset, false},
     {"BTITLE", 80, 76, cmd_btitle, false},
     {"BUSER", 80, 77, cmd_buser, false},
     {"BMAKE", 100, 83, cmd_bmake, false},
     {"BKILL", 100, 84, cmd_bkill, false},
-    {"BCHANGE", 100, 85, NULL, false},
+    {"BCHANGE", 100, 85, cmd_bchange, false},
     {"RALL", 30, 61, cmd_rall, false},
     {"RNALL", 30, 62, cmd_rnall, false},
     {"IDLIST", 0, 73, cmd_idlist, false},
@@ -295,7 +295,7 @@ static int command_loop(struct sess *s) {
             int no = b && board_can_read(USER(s), b) ? b->no : -1;
             pthread_mutex_unlock(&g_lock);
             if (no < 0) CHK(outm_nl(s, 335));
-            else CHK(read_board(s, no, 0));
+            else CHK(read_board(s, no, RB_NORMAL));
             continue;
         }
         const struct command *c = NULL;
@@ -414,6 +414,7 @@ void *session_thread(void *arg) {
     nc_log("CH%02d: 切断 %s", ca->no, ca->peer);
     free(s.draft_title);
     free(s.draft_body);
+    free(s.upload);
     term_free(&t);
     close(ca->fd);
     online_free(ca->no);

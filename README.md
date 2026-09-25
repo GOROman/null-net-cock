@@ -6,7 +6,8 @@ macOS / Linux で動き、TCP (telnet) で接続します。
 - NET-COCK のコマンド体系をそのまま使えます (BREAD / BWRITE / RALL / MREAD / MWRITE / CHAT / LLIST / LOG …)。コマンドは省略でき、前方一致で最初に当たるものが選ばれます
 - メッセージ ID の割り当ては NET-COCK の `MES.TXT` と同じです。お手持ちの `MES.TXT` / `SYS_MES.DAT` を設定で指定すると、元と同じ文言で表示されます
 - 初期データも NET-COCK と同じで、ゲスト (ID 0) と SYSOP (ID 1、パスワード `ABC`) だけ、ボードはありません
-- データは SQLite (`data/net-cock.db`) に保存します
+- プログラムボード (PDS) に対応。XMODEM (SUM / CRC / 1K)・YMODEM・YMODEM-g でファイルを上げ下ろしでき、BATCH で YMODEM バッチ転送もできます
+- データは SQLite (`data/net-cock.db`) に保存します。終了のシグナルを受けたときも保存してから終わります
 - 1 回線 1 スレッド、最大 128 回線
 - 端末の文字コードは Shift_JIS (既定) か UTF-8。全角文字の BS も正しく消えます
 - チャット・電報・ログイン/ログアウトの通知は、入力中でも割り込んで表示します
@@ -23,7 +24,7 @@ SQLite と iconv が必要です (macOS は標準で入っています)。
 
 ```sh
 make
-make test     # 結合テスト (Python 3)
+make test     # 結合テスト (Python 3。転送のテストには lrzsz の sz / rz が必要)
 ```
 
 ## 起動

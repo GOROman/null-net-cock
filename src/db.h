@@ -1,7 +1,7 @@
 /*
  * データ: 会員・ボード・メッセージ・既読位置・ログ・入会申請・システム設定
  *
- * すべてメモリに載せ、変更のたびにデータディレクトリのテキストファイルへ書き出す。
+ * すべてメモリに載せ、変更のたびに SQLite (data_dir/net-cock.db) へ書き出す。
  * 呼び出し側は g_lock を持った状態で読み書きすること。
  */
 #ifndef DB_H
@@ -74,7 +74,8 @@ struct msg {
     int from;
     int reply_to;           /* リプライ先の番号 (0 は無し) */
     int replies;
-    long off, len;          /* 本文の data.dat 内の位置 */
+    long off, len;          /* 本文 (bodies の id) とバイト数 */
+    long fid;               /* プログラムボードのファイル (files の id、0 は無し) */
     int reads, dls;
     bool deleted;
     char fname[16];
@@ -158,6 +159,8 @@ int app_add(const struct application *a);
 struct application *app_list(int *n);
 void app_save(void);
 
+long file_add(const void *data, size_t len);    /* ファイル本体を保存して id を返す */
+void *file_get(long fid, size_t *len);          /* malloc したファイル本体 */
 int filem(void);                                /* ファイルメンテナンス。消した件数 */
 
 #endif

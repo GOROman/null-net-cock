@@ -1,6 +1,7 @@
 /*
  * 端末の入出力: telnet の処理、文字コードの変換 (UTF-8 ⇔ SJIS)、1 行入力、ページ送り
  */
+#include "msg.h"
 #include "nc.h"
 
 #include <errno.h>
@@ -119,8 +120,10 @@ static void telnet_filter(struct term *t, const unsigned char *in, size_t n) {
         switch (t->telnet_state) {
         case TS_DATA:
             if (b == IAC) { t->telnet_state = TS_IAC; break; }
-            if (t->after_cr && (b == 0 || b == '\n')) { t->after_cr = false; break; }
-            t->after_cr = b == '\r';
+            if (!t->binary) {
+                if (t->after_cr && (b == 0 || b == '\n')) { t->after_cr = false; break; }
+                t->after_cr = b == '\r';
+            }
             if (t->in_len < sizeof t->in) t->in[t->in_len++] = b;
             break;
         case TS_IAC:
@@ -152,6 +155,10 @@ static int wait_input(struct term *t) {
         int idle = g_cfg.idle_timeout - (int)(now - t->last_input);
         if (g_cfg.idle_timeout > 0 && idle <= 0) return T_TIMEOUT;
         if (t->deadline && now >= t->deadline) return T_TIMEUP;
+        if (t->deadline && !t->warned && t->deadline - now <= 60) {
+            t->warned = t->warn_pending = true;
+            return 2;
+        }
         int wait_ms = 1000;
         struct pollfd pf[2] = {{t->fd, POLLIN, 0}, {t->notify_rd, POLLIN, 0}};
         int r = poll(pf, t->notify_rd >= 0 ? 2 : 1, wait_ms);
@@ -184,6 +191,11 @@ static int show_notices(struct term *t, const char *prompt, const char *typed, b
     enum notice_kind kind;
     char text[512];
     bool shown = false;
+    if (t->warn_pending) {
+        t->warn_pending = false;
+        term_printf(t, "\n%s%d%s", M(201), (int)(t->deadline - time(NULL)), M(202));
+        shown = true;
+    }
     while (notice_pop(t->no, &kind, text, sizeof text)) {
         if (kind == N_KICK) {
             term_printf(t, "\n\n*** %s ***\n", text);
@@ -310,4 +322,61 @@ int term_yesno(struct term *t, const char *prompt) {
     int r = term_readline(t, p, a, sizeof a, RL_UPPER);
     if (r < 0) return r;
     return a[0] == 'Y' ? 1 : 0;
+}
+
+/* ------------------------------------------------------------ バイナリ転送 */
+
+int term_getc(struct term *t, int timeout_ms) {
+    for (;;) {
+        if (t->in_len > 0) {
+            int c = t->in[0];
+            memmove(t->in, t->in + 1, --t->in_len);
+            return c;
+        }
+        struct pollfd pf = {t->fd, POLLIN, 0};
+        int r = poll(&pf, 1, timeout_ms);
+        if (r < 0) {
+            if (errno == EINTR) continue;
+            return T_DISCONNECT;
+        }
+        if (r == 0) return T_NODATA;
+        unsigned char buf[2048];
+        ssize_t n = read(t->fd, buf, sizeof buf);
+        if (n <= 0) {
+            t->closed = true;
+            return T_DISCONNECT;
+        }
+        t->last_input = time(NULL);
+        telnet_filter(t, buf, (size_t)n);
+        /* telnet の制御だけだったときは、同じ待ち時間でもう一度待つ */
+    }
+}
+
+int term_write_bin(struct term *t, const void *buf, size_t len) {
+    const unsigned char *p = buf;
+    unsigned char out[4096];
+    size_t k = 0;
+    for (size_t i = 0; i < len; i++) {
+        out[k++] = p[i];
+        if (p[i] == IAC) out[k++] = IAC;
+        if (k >= sizeof out - 2) {
+            if (term_write_raw(t, out, k) < 0) return T_DISCONNECT;
+            k = 0;
+        }
+    }
+    return k ? term_write_raw(t, out, k) : T_OK;
+}
+
+/* telnet の BINARY オプション (0) を両方向で使う / やめる */
+void term_set_binary(struct term *t, bool on) {
+    unsigned char seq[] = {IAC, on ? WILL : WONT, 0, IAC, on ? DO : DONT, 0};
+    term_write_raw(t, seq, sizeof seq);
+    t->binary = on;
+    t->after_cr = false;
+}
+
+/* 相手が送るのをやめるまで (quiet_ms の間なにも来なくなるまで) 受信を捨てる */
+void term_purge(struct term *t, int quiet_ms) {
+    t->in_len = 0;
+    while (term_getc(t, quiet_ms) >= 0) t->in_len = 0;
 }

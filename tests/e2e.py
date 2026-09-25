@@ -17,7 +17,11 @@ class Client:
         self.buf = b""
 
     def _recv(self):
-        data = self.s.recv(4096)
+        try:
+            data = self.s.recv(4096)
+        except socket.timeout:
+            self._dead = True
+            return
         if not data:
             raise EOFError("切断されました")
         # telnet のネゴシエーション (IAC xx yy) を捨てる
@@ -35,7 +39,7 @@ class Client:
         want = text.encode("cp932")
         end = time.time() + timeout
         while want not in self.buf:
-            if time.time() > end:
+            if time.time() > end or getattr(self, "_dead", False):
                 raise AssertionError(f"{text!r} が来ません。受信: {self.buf.decode('cp932', 'replace')[-400:]!r}")
             self._recv()
         idx = self.buf.index(want) + len(want)
@@ -63,6 +67,7 @@ def main():
         a.talk("ID:", "1")
         a.talk("Password:", "abc")
         a.talk(">", "BMAKE")
+        a.talk("一覧を表示しますか", "n")
         a.talk("新しく作るボードの番号＞", "1")
         for _ in range(8):  # ボードオペ〜残すタイトル数は既定値
             a.expect("＞")
@@ -73,6 +78,21 @@ def main():
         a.talk("ボードインデックス＞", "FREE")
         a.talk("ボードのタイトル＞", "フリーボード")
         a.expect("設定を変えました。")
+        # BCHANGE: 空 Enter は今の値のまま、タイトルだけ変える
+        a.talk(">", "BCHANGE")
+        a.talk("一覧を表示しますか", "n")
+        a.talk("どのボードを変えますか", "FREE")
+        for _ in range(8):
+            a.expect("＞")
+            a.send("")
+        for p in ["(board/mail/program):", "(y/n):", "(y/n):", "ボードインデックス＞"]:
+            a.talk(p, "")
+        a.talk("ボードのタイトル＞", "フリーボード２")
+        a.expect("設定を変えました。")
+        a.talk(">", "BREAD")
+        got = a.expect("どのボードを読みますか")
+        assert "\\FREE" in got and "フリーボード２" in got, got
+        a.send("")
         a.talk(">", "BW FREE")
         a.talk("タイトル (50 文字まで):", "テスト書き込み")
         a.expect(">")  # ルーラー
@@ -106,11 +126,11 @@ def main():
                      ("男性ですか", "y"), ("ESC", "y"), ("見えますか", "y"), ("ログネーム", "やまだ"), ("自己紹介", "よろしく")]:
             c.talk(p, v)
         c.talk(">", "RALL")
-        c.talk("Command", "")  # 次 (1 番) を読む
-        got = c.expect("Command")
-        assert "こんにちは、表示のテストです。" in got and "FREE(1/1)" in got, got
-        c.send("")
-        c.expect("==== 最後まで読みました ====")
+        got = c.expect("Command")  # 未読で一番古いもののヘッダ
+        assert "FREE(1/1)" in got and "テスト書き込み" in got, got
+        c.send("")  # R: 本文を読む
+        got = c.expect("==== 最後まで読みました ====")
+        assert "こんにちは、表示のテストです。" in got, got
         c.expect("==== 指定したボードを全部読みました ====")
         c.talk(">", "MW")
         c.talk("宛先 (1/4)＞", "1")
@@ -126,11 +146,19 @@ def main():
         got = c.expect(">")
         assert "やまだ" in got and "Sysop" in got, got
 
-        a.talk(">", "MCHECK")
-        got = a.expect("次のメールに進みますか")
+        a.talk(">", "MREAD")
+        got = a.expect("Command")
+        assert "ごあいさつ" in got and "mail" in got, got
+        a.send("")
+        got = a.expect("削除しますか")
         assert "入会しました。" in got, got
-        a.send("y")
-        a.expect("メールの確認を終わります。")
+        a.send("n")
+        a.talk("Command", "Q")
+        c.send("MCHECK")
+        got = c.expect("次のメールに進みますか")
+        assert "0001:Sysop(r)" in got, got
+        c.send("q")
+        c.expect("メールの確認を終わります。")
         a.talk(">", "LOG")
         got = a.expect(">")
         assert "Guest" in got, got
@@ -147,7 +175,8 @@ def main():
         d.talk("ID:", "やまだ")
         d.talk("Password:", "PASS")
         d.talk(">", "BREAD FREE")
-        d.talk("Command", "1")
+        d.talk("Command", "T")
+        d.talk("Command", "R")
         got = d.expect("Command")
         assert "２行目" in got, got
         d.send("Q")

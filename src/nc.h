@@ -60,6 +60,9 @@ struct term {
     time_t deadline;        /* 接続時間の上限 (0 は無制限) */
     int rows;               /* 1 ページの行数 */
     bool closed;
+    bool binary;            /* バイナリ転送中 (CR の処理をしない) */
+    bool warned;            /* 持ち時間の予告を出した */
+    bool warn_pending;
 };
 
 enum read_flags { RL_MASK = 1, RL_UPPER = 2, RL_RAW = 4 };
@@ -80,6 +83,12 @@ int term_printf(struct term *t, const char *fmt, ...) __attribute__((format(prin
 int term_readline(struct term *t, const char *prompt, char *out, size_t outsz, int flags);
 int term_more(struct term *t, int *line_count);
 int term_yesno(struct term *t, const char *prompt);
+/* バイナリ転送用: 1 バイト読む (0〜255。時間切れは T_NODATA)、IAC をエスケープして書く */
+#define T_NODATA (-100)
+int term_getc(struct term *t, int timeout_ms);
+int term_write_bin(struct term *t, const void *buf, size_t len);
+void term_set_binary(struct term *t, bool on);
+void term_purge(struct term *t, int quiet_ms);
 
 /* ------------------------------------------------------------ 在室者と通知 */
 

@@ -572,48 +572,112 @@ int cmd_upass(struct sess *s, const char *arg) {
 
 /* ------------------------------------------------------------ SYSOP: ボード */
 
+/* y/n の問い。空 Enter は今の値のまま。neg は「〜しませんね」形式 (N で真) */
+static int yn_keep(struct sess *s, int id, bool cur, bool neg) {
+    char a[16];
+    CHK(out(s, "[%c] ", (cur != neg) ? 'Y' : 'N'));
+    CHK(ask(s, id, a, sizeof a, RL_UPPER));
+    if (a[0] == 'Y') return !neg;
+    if (a[0] == 'N') return neg;
+    return cur;
+}
+
+/* ボードの属性を聞く (BMAKE と BCHANGE)。空 Enter は今の値のまま。1: 入力した 0: やめた */
+static int board_input(struct sess *s, struct board *b) {
+    CHK(ask_int(s, 166, b->bop, &b->bop));
+    CHK(ask_int(s, 167, b->rlevel, &b->rlevel));
+    CHK(ask_int(s, 168, b->wlevel, &b->wlevel));
+    CHK(ask_int(s, 169, b->group, &b->group));
+    CHK(ask_int(s, 170, b->age_min, &b->age_min));
+    CHK(ask_int(s, 171, b->age_max, &b->age_max));
+    CHK(ask_int(s, 172, b->sex, &b->sex));
+    CHK(ask_int(s, 173, b->keep, &b->keep));
+    if (b->no != MAIL_BOARD) {
+        char a[16];
+        CHK(out(s, "[%s] ", b->type == BT_PROGRAM ? "program" : "board"));
+        CHK(ask(s, 174, a, sizeof a, RL_UPPER));
+        if (a[0] == 'P') b->type = BT_PROGRAM;
+        else if (a[0] == 'B') b->type = BT_BOARD;
+    }
+    int r = yn_keep(s, 175, b->esc, false);
+    if (r < 0) return r;
+    b->esc = r;
+    r = yn_keep(s, 176, b->cug, true);
+    if (r < 0) return r;
+    b->cug = r;
+    if (b->no == MAIL_BOARD) return 1;
+    for (;;) {
+        char idx[16];
+        if (b->index[0]) CHK(out(s, "[%s] ", b->index));
+        CHK(ask(s, 177, idx, sizeof idx, RL_UPPER));
+        if (!idx[0]) {
+            if (!b->index[0]) return 0;
+            break;
+        }
+        pthread_mutex_lock(&g_lock);
+        bool dup = false;
+        for (int i = 1; i < MAX_BOARDS; i++)
+            if (i != b->no && g_boards[i].used && !strcasecmp(g_boards[i].index, idx)) dup = true;
+        pthread_mutex_unlock(&g_lock);
+        if (!dup && !isdigit((unsigned char)idx[0])) {
+            snprintf(b->index, sizeof b->index, "%s", idx);
+            break;
+        }
+        CHK(outm_nl(s, 165));
+    }
+    char title[128];
+    if (b->title[0]) CHK(out(s, "[%s]\n", b->title));
+    CHK(ask(s, 178, title, sizeof title, 0));
+    if (title[0]) snprintf(b->title, sizeof b->title, "%s", title);
+    return 1;
+}
+
 int cmd_bmake(struct sess *s, const char *arg) {
+    int r = yn(s, 179);
+    if (r < 0) return r;
+    if (r) print_board_list(s, false);
     int no;
     CHK(ask_int(s, 164, -1, &no));
     pthread_mutex_lock(&g_lock);
     bool bad = no < 1 || no >= MAX_BOARDS || g_boards[no].used;
     pthread_mutex_unlock(&g_lock);
     if (bad) return outm_nl(s, 165);
-    struct board b = {.used = true, .no = no, .type = BT_BOARD, .next_seq = 1};
-    CHK(ask_int(s, 166, s->uid, &b.bop));
-    CHK(ask_int(s, 167, 0, &b.rlevel));
-    CHK(ask_int(s, 168, g_sys.temp_level, &b.wlevel));
-    CHK(ask_int(s, 169, 0, &b.group));
-    CHK(ask_int(s, 170, 0, &b.age_min));
-    CHK(ask_int(s, 171, 0, &b.age_max));
-    CHK(ask_int(s, 172, 0, &b.sex));
-    CHK(ask_int(s, 173, 0, &b.keep));
-    char a[16];
-    CHK(ask(s, 174, a, sizeof a, RL_UPPER));
-    b.type = a[0] == 'M' ? BT_MAIL : a[0] == 'P' ? BT_PROGRAM : BT_BOARD;
-    int r = yn(s, 175);
-    if (r < 0) return r;
-    b.esc = r;
-    r = yn_neg(s, 176);
-    if (r < 0) return r;
-    b.cug = r;
-    for (;;) {
-        CHK(ask(s, 177, b.index, sizeof b.index, RL_UPPER));
-        if (!b.index[0]) return 0;
-        pthread_mutex_lock(&g_lock);
-        bool dup = false;
-        for (int i = 1; i < MAX_BOARDS; i++)
-            if (g_boards[i].used && !strcasecmp(g_boards[i].index, b.index)) dup = true;
-        pthread_mutex_unlock(&g_lock);
-        if (!dup && !isdigit((unsigned char)b.index[0])) break;
-        CHK(outm_nl(s, 165));
-    }
-    CHK(ask(s, 178, b.title, sizeof b.title, 0));
+    struct board b = {.used = true, .no = no, .type = BT_BOARD, .next_seq = 1, .bop = s->uid,
+                      .wlevel = g_sys.temp_level};
+    r = board_input(s, &b);
+    if (r <= 0) return r;
     pthread_mutex_lock(&g_lock);
     g_boards[no] = b;
     db_save_boards();
     pthread_mutex_unlock(&g_lock);
     nc_log("CH%02d: ボード %d (%s) を作成", s->no, no, b.index);
+    return outm_nl(s, 220);
+}
+
+/* ボードの属性を変える (0 番のメールも選べる) */
+int cmd_bchange(struct sess *s, const char *arg) {
+    int r = yn(s, 179);
+    if (r < 0) return r;
+    if (r) print_board_list(s, false);
+    char a[32];
+    CHK(ask(s, 180, a, sizeof a, RL_UPPER));
+    if (!a[0]) return 0;
+    pthread_mutex_lock(&g_lock);
+    const char *key = a[0] == '\\' ? a + 1 : a;
+    struct board *bp = !strcmp(key, "0") ? &g_boards[MAIL_BOARD] : board_by_index(key);
+    struct board b = bp ? *bp : (struct board){0};
+    pthread_mutex_unlock(&g_lock);
+    if (!bp) return outm_nl(s, 335);
+    r = board_input(s, &b);
+    if (r <= 0) return r;
+    pthread_mutex_lock(&g_lock);
+    if (g_boards[b.no].used) {
+        b.next_seq = g_boards[b.no].next_seq;
+        g_boards[b.no] = b;
+    }
+    db_save_boards();
+    pthread_mutex_unlock(&g_lock);
+    nc_log("CH%02d: ボード %d (%s) の設定を変更", s->no, b.no, b.index);
     return outm_nl(s, 220);
 }
 
