@@ -1,0 +1,166 @@
+#!/usr/bin/env python3
+"""null-net-cock の結合テスト: 一時ディレクトリで起動し、Shift_JIS の TCP クライアントで操作する"""
+import os
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+
+BIN = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else "./null-net-cock")
+PORT = 16868
+
+
+class Client:
+    def __init__(self):
+        self.s = socket.create_connection(("127.0.0.1", PORT), timeout=5)
+        self.buf = b""
+
+    def _recv(self):
+        data = self.s.recv(4096)
+        if not data:
+            raise EOFError("切断されました")
+        # telnet のネゴシエーション (IAC xx yy) を捨てる
+        out = bytearray()
+        i = 0
+        while i < len(data):
+            if data[i] == 0xFF and i + 2 < len(data) + 1:
+                i += 3
+                continue
+            out.append(data[i])
+            i += 1
+        self.buf += bytes(out)
+
+    def expect(self, text, timeout=5):
+        want = text.encode("cp932")
+        end = time.time() + timeout
+        while want not in self.buf:
+            if time.time() > end:
+                raise AssertionError(f"{text!r} が来ません。受信: {self.buf.decode('cp932', 'replace')[-400:]!r}")
+            self._recv()
+        idx = self.buf.index(want) + len(want)
+        got, self.buf = self.buf[:idx], self.buf[idx:]
+        return got.decode("cp932", "replace")
+
+    def send(self, line):
+        self.s.sendall(line.encode("cp932") + b"\r\n")
+
+    def talk(self, prompt, line):
+        self.expect(prompt)
+        self.send(line)
+
+
+def main():
+    tmp = tempfile.mkdtemp(prefix="nnc-")
+    conf = os.path.join(tmp, "test.conf")
+    with open(conf, "w") as f:
+        f.write(f'bbs_name = "TEST-NET"\nlisten = 127.0.0.1:{PORT}\ndata_dir = {tmp}/data\n')
+    srv = subprocess.Popen([BIN, "-c", conf], stderr=subprocess.PIPE)
+    try:
+        time.sleep(0.5)
+        # SYSOP でログインしてボードを作り、書き込む
+        a = Client()
+        a.talk("ID:", "1")
+        a.talk("Password:", "abc")
+        a.talk(">", "BMAKE")
+        a.talk("新しく作るボードの番号＞", "1")
+        for _ in range(8):  # ボードオペ〜残すタイトル数は既定値
+            a.expect("＞")
+            a.send("")
+        a.talk("(board/mail/program):", "b")
+        a.talk("(y/n):", "n")
+        a.talk("(y/n):", "y")  # CUG にしない
+        a.talk("ボードインデックス＞", "FREE")
+        a.talk("ボードのタイトル＞", "フリーボード")
+        a.expect("設定を変えました。")
+        a.talk(">", "BW FREE")
+        a.talk("タイトル (50 文字まで):", "テスト書き込み")
+        a.expect(">")  # ルーラー
+        a.send("こんにちは、表示のテストです。")
+        a.send("２行目")
+        a.send(".")
+        a.talk("書き込みますか", "Y")
+        a.expect("==== 書き込みました ====")
+
+        # ゲストで入って ID を取り、仮会員として読む
+        b = Client()
+        b.talk("ID:", "GUEST")
+        b.talk("ID を取りますか (y/n):", "y")
+        for p, v in [("氏名", "山田太郎"), ("フリガナ", "ヤマダタロウ"), ("住所", "大阪市北区"), ("郵便番号", "530-91"),
+                     ("電話番号", "06-373-9961"), ("パスワード (8", "PASS"), ("もう一度", "PASS")]:
+            b.talk(p, v)
+        b.talk("この内容で ID を作りますか", "y")
+        got = b.expect("があなたの ID です")
+        assert "TEST0002" in got or "NULL0002" in got or "0002" in got, got
+        b.talk("Enter を押してください。", "")
+        a.expect("Guest")  # ゲストのログイン通知 (割り込み表示)
+        b.talk(">", "OFF")
+        b.talk("回線を切りますか", "y")
+        b.expect("00:")
+
+        c = Client()
+        c.talk("ID:", "2")
+        c.talk("Password:", "pass")
+        # 初回の登録
+        for p, v in [("公開する住所", "大阪"), ("職業", "学生"), ("機種", "X68000"), ("生年月日", "70-01-01"),
+                     ("男性ですか", "y"), ("ESC", "y"), ("見えますか", "y"), ("ログネーム", "やまだ"), ("自己紹介", "よろしく")]:
+            c.talk(p, v)
+        c.talk(">", "RALL")
+        c.talk("Command", "")  # 次 (1 番) を読む
+        got = c.expect("Command")
+        assert "こんにちは、表示のテストです。" in got and "FREE(1/1)" in got, got
+        c.send("")
+        c.expect("==== 最後まで読みました ====")
+        c.expect("==== 指定したボードを全部読みました ====")
+        c.talk(">", "MW")
+        c.talk("宛先 (1/4)＞", "1")
+        c.talk("さんでいいですか", "y")
+        c.talk("宛先 (2/4)＞", "")
+        c.talk("タイトル", "ごあいさつ")
+        c.expect(">")
+        c.send("入会しました。")
+        c.send(".")
+        c.talk("書き込みますか", "Y")
+        c.expect("書き込みました")
+        c.talk(">", "LLIST")
+        got = c.expect(">")
+        assert "やまだ" in got and "Sysop" in got, got
+
+        a.talk(">", "MCHECK")
+        got = a.expect("次のメールに進みますか")
+        assert "入会しました。" in got, got
+        a.send("y")
+        a.expect("メールの確認を終わります。")
+        a.talk(">", "LOG")
+        got = a.expect(">")
+        assert "Guest" in got, got
+        a.talk("", "CHAT")
+        a.talk("chat:", "こんにちは")
+        c.expect("こんにちは")
+        a.talk("chat:", "q")
+        # 再起動しても残っていること (SQLite)
+        srv.terminate()
+        srv.communicate(timeout=5)
+        srv = subprocess.Popen([BIN, "-c", conf], stderr=subprocess.PIPE)
+        time.sleep(0.5)
+        d = Client()
+        d.talk("ID:", "やまだ")
+        d.talk("Password:", "PASS")
+        d.talk(">", "BREAD FREE")
+        d.talk("Command", "1")
+        got = d.expect("Command")
+        assert "２行目" in got, got
+        d.send("Q")
+        d.talk(">", "UREAD 1")
+        got = d.expect(">")
+        assert "Sysop" in got, got
+        print("OK: e2e 通過")
+    finally:
+        srv.terminate()
+        err = srv.communicate(timeout=5)[1].decode("utf-8", "replace")
+        if os.environ.get("VERBOSE"):
+            print(err)
+
+
+if __name__ == "__main__":
+    main()

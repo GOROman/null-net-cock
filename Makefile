@@ -1,13 +1,13 @@
 CC ?= cc
 CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Wno-unused-parameter -D_DEFAULT_SOURCE -D_DARWIN_C_SOURCE
-LDLIBS = -lpthread -liconv
+LDLIBS = -lpthread -liconv -lsqlite3
 SRC = $(wildcard src/*.c)
 OBJ = $(SRC:src/%.c=build/%.o)
 
 null-net-cock: $(OBJ)
 	$(CC) $(CFLAGS) -o $@ $(OBJ) $(LDLIBS)
 
-build/%.o: src/%.c src/nc.h
+build/%.o: src/%.c src/nc.h src/db.h src/msg.h src/session.h
 	@mkdir -p build
 	$(CC) $(CFLAGS) -c -o $@ $<
 

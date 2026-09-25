@@ -1,0 +1,15 @@
+# null-net-cock の設定 (null-net-cock.conf にコピーして使う)
+
+bbs_name = "NULL-NET"          # 起動時のログに出す名前
+net_id = TEST                  # ネットワーク ID (英字 4 文字。初回起動時だけ使う。あとは SYSSET で変更)
+listen = 0.0.0.0:6868          # TCP の待ち受け
+data_dir = data                # データ (net-cock.db / system.log) の置き場所
+max_lines = 16                 # 回線数 (最大 128)
+idle_timeout = 300             # 無操作で切断するまでの秒数 (0 で無効)
+session_minutes = 60           # 会員の 1 日の持ち時間 (初回起動時の既定値)
+guest_minutes = 15             # ゲストの持ち時間 (初回起動時の既定値)
+default_code = sjis            # 端末の文字コード: sjis / utf8
+
+# NET-COCK 付属の文言ファイルを指定すると、元と同じ文言で表示する (Shift_JIS のまま置いてよい)
+#mes_file = /path/to/MES.TXT
+#sysmes_file = /path/to/SYS_MES.DAT

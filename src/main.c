@@ -1,6 +1,8 @@
 /*
  * null-net-cock: 起動と TCP の待ち受け
  */
+#include "db.h"
+#include "msg.h"
 #include "nc.h"
 
 #include <arpa/inet.h>
@@ -56,6 +58,31 @@ int main(int argc, char **argv) {
     }
     signal(SIGPIPE, SIG_IGN);
     mkdir(g_cfg.data_dir, 0755);
+
+    if (db_open() < 0) {
+        fprintf(stderr, "%s/net-cock.db を開けません\n", g_cfg.data_dir);
+        return 1;
+    }
+    if (g_cfg.mes_file[0]) {
+        int n = msg_load(g_cfg.mes_file);
+        if (n < 0) fprintf(stderr, "%s を読めません。内蔵の文言を使います\n", g_cfg.mes_file);
+        else nc_log("%s から %d 件の文言を読み込みました", g_cfg.mes_file, n);
+    }
+    /* MESEDIT のメッセージがまだ無ければ、SYS_MES.DAT か既定の文面で埋める */
+    if (!g_sys.sysmes[0][0]) {
+        if (g_cfg.sysmes_file[0] && sysmes_load(g_cfg.sysmes_file) > 0)
+            nc_log("%s を読み込みました", g_cfg.sysmes_file);
+        else {
+            static const char *def[10] = {
+                "", "", "", "ゲストでログインしました。", "ご利用ありがとうございました。",
+                "? でコマンドの一覧を表示します。", "", "", "", "",
+            };
+            snprintf(g_sys.sysmes[0], sizeof g_sys.sysmes[0], "%s (null-net-cock %s)\nゲストは GUEST と入力してください。",
+                     g_cfg.bbs_name, NC_VERSION);
+            for (int i = 1; i < 10; i++) snprintf(g_sys.sysmes[i], sizeof g_sys.sysmes[i], "%s", def[i]);
+        }
+        db_save_sys();
+    }
 
     int ls = listen_tcp(g_cfg.listen);
     if (ls < 0) {

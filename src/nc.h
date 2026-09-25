@@ -32,6 +32,8 @@ struct config {
     int session_minutes;    /* 1 回の接続の上限 (分) */
     int guest_minutes;
     char default_code[8];   /* 端末の既定の文字コード: sjis / utf8 */
+    char mes_file[512];     /* NET-COCK の MES.TXT (指定すると元と同じ文言になる) */
+    char sysmes_file[512];  /* NET-COCK の SYS_MES.DAT */
 };
 
 extern struct config g_cfg;
@@ -91,6 +93,8 @@ struct online {
     char place[64];
     char peer[64];
     time_t since;
+    bool chat;              /* チャットを受け付ける */
+    bool secret;            /* 極秘モード (LLIST に出さない) */
     int notify_wr;
     int notify_rd;
     /* 届いた通知 (リングバッファ) */

@@ -2,3 +2,4 @@
 *.o
 /null-net-cock
 /data/
+/null-net-cock.conf

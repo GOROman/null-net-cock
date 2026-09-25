@@ -10,7 +10,7 @@
 
 struct config g_cfg = {
     .bbs_name = "NULL-NET",
-    .net_id = "NULL",
+    .net_id = "TEST",
     .data_dir = "data",
     .listen = "0.0.0.0:6868",
     .max_lines = 16,
@@ -44,7 +44,7 @@ int config_load(const char *path) {
         }
 #define STR(name) if (!strcmp(key, #name)) snprintf(g_cfg.name, sizeof g_cfg.name, "%s", val);
 #define INT(name) if (!strcmp(key, #name)) g_cfg.name = atoi(val);
-        STR(bbs_name) STR(net_id) STR(data_dir) STR(listen) STR(default_code)
+        STR(bbs_name) STR(net_id) STR(data_dir) STR(listen) STR(default_code) STR(mes_file) STR(sysmes_file)
         INT(max_lines) INT(idle_timeout) INT(session_minutes) INT(guest_minutes)
 #undef STR
 #undef INT
