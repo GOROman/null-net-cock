@@ -202,9 +202,21 @@ def main():
         got = d.expect("Command")
         assert "２行目" in got, got
         d.send("Q")
-        d.talk(">", "UREAD 1")
-        got = d.expect(">")
-        assert "Sysop" in got, got
+        d.talk(">", "UREAD 1")  # UREAD はレベル 40 から。仮会員 (30) は使えない
+        d.expect("そのコマンドはありません。")
+        # メニュー方式
+        d.talk(">", "MODE")
+        for p, v in [("ESC", "n"), ("見えますか", "y"), ("メニュー方式にしますか", "y"), ("毎回メニュー", "y"),
+                     ("チャットを受け付けますか", "y")]:
+            d.talk(p, v)
+        got = d.expect("番号＞")
+        assert "《メインメニュー》" in got and "2. ボードを読む・書く" in got and "9. 回線を切る" in got, got
+        d.send("2")
+        got = d.expect("番号＞")
+        assert "《ボード》" in got and "1. BREAD" in got and "0. メインメニューに戻る" in got, got
+        d.send("0")
+        d.talk("番号＞", "9")
+        d.talk("回線を切りますか", "y")
         print("OK: e2e 通過")
     finally:
         srv.terminate()

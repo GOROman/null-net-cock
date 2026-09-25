@@ -3,6 +3,7 @@
  */
 #include "session.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -121,7 +122,7 @@ static const struct command {
     {"IDSET", 100, 97, cmd_idset, false},
     {"IDKILL", 100, 89, cmd_idkill, false},
     {"IDCOPY", 100, 90, NULL, false},
-    {"UREAD", 30, 67, cmd_uread, false},
+    {"UREAD", 40, 67, cmd_uread, false},
     {"UWRITE", 30, 69, cmd_uwrite, false},
     {"UDLIST", 100, 87, NULL, true},
     {"UDEDIT", 100, 105, NULL, true},
@@ -272,12 +273,118 @@ static int opening(struct sess *s) {
 
 /* ------------------------------------------------------------ コマンドループ */
 
+/* 1 つのコマンドを実行する。OFF で回線を切るなら 1 */
+static int run_command(struct sess *s, const struct command *c, const char *arg) {
+    online_set_place(s->no, c->name);
+    if (!strcmp(c->name, "OFF")) {
+        int r = yn(s, 124);
+        return r < 0 ? r : r ? 1 : 0;
+    }
+    if (!c->fn) return outm_nl(s, 155);
+    int r = c->fn(s, arg);
+    return r < 0 ? r : 0;
+}
+
+static const struct command *find_command(struct sess *s, const char *cmd) {
+    size_t n = strlen(cmd);
+    for (int i = 0; i < NCMD; i++)
+        if (strncmp(commands[i].name, cmd, n) == 0 && can_use(s, &commands[i])) return &commands[i];
+    return NULL;
+}
+
+/* ------------------------------------------------------------ メニュー方式 */
+
+/* グループ 1〜8 の中身 (NET-COCK のコマンド一覧の並び) */
+static const char *const menu_groups[8][16] = {
+    {"LOG", "UREAD", "MODE", "UWRITE", "PASS", "IDLIST", "CLS", "USTAT", "VERSION"},
+    {"BREAD", "BWRITE", "BATCH", "BSET", "RALL", "RNALL", "PMOVE"},
+    {"MREAD", "MWRITE", "MCHECK", "MBSET"},
+    {"MESEDIT", "SCSET", "SCLIST", "STORE", "SECRET", "SECOFF", "CMODE", "SDTIME", "ALARM", "SYSSET", "LINESET",
+     "IMODE", "AON", "AOFF", "LBUSY"},
+    {"BTITLE", "BUSER", "BMAKE", "BKILL", "BCHANGE"},
+    {"CHAT", "LLIST", "COFF", "CON", "ACCESS"},
+    {"GULV", "JOIN", "NEWMEM", "MAKEID", "ULEVEL", "UTIME", "MCHANGE", "UDLIST", "IDKILL", "IDCOPY", "IDSET", "UPASS",
+     "UDEDIT", "SIGNUP", "LCSET"},
+    {"CTIME", "HFCONT", "FILEM", "REPORT", "KEYLOCK", "DEBUG"},
+};
+
+static const struct command *by_name(const char *name) {
+    for (int i = 0; i < NCMD; i++)
+        if (!strcmp(commands[i].name, name)) return &commands[i];
+    return NULL;
+}
+
+/* グループの中で使えるコマンドを番号順に集める */
+static int group_items(struct sess *s, int g, const struct command **items) {
+    int n = 0;
+    for (int k = 0; k < 16 && menu_groups[g - 1][k]; k++) {
+        const struct command *c = by_name(menu_groups[g - 1][k]);
+        if (c && can_use(s, c)) items[n++] = c;
+    }
+    return n;
+}
+
+static int show_menu(struct sess *s, int g) {
+    if (g == 0) {
+        CHK(out(s, "\n%s\n", M(44)));
+        for (int i = 1; i <= 8; i++) {
+            const struct command *items[16];
+            if (group_items(s, i, items)) CHK(out(s, " %d. %s\n", i, M(35 + i)));
+        }
+        return out(s, " 9. %s\n", M(74));
+    }
+    const struct command *items[16];
+    int n = group_items(s, g, items);
+    CHK(out(s, "\n%s\n", M(44 + g)));
+    for (int i = 0; i < n; i++) CHK(out(s, " %d. %-8s %s\n", i + 1, items[i]->name, M(items[i]->desc)));
+    return out(s, " 0. %s\n", M(35));
+}
+
+/* ------------------------------------------------------------ コマンドループ */
+
 static int command_loop(struct sess *s) {
+    int group = 0;
+    bool shown = false;
     for (;;) {
         online_set_place(s->no, "COMMAND");
+        pthread_mutex_lock(&g_lock);
+        bool menu = USER(s)->menu, always = USER(s)->menu_always;
+        pthread_mutex_unlock(&g_lock);
+        if (menu && (always || !shown)) {
+            CHK(show_menu(s, group));
+            shown = true;
+        }
         char line[256];
-        CHK(term_readline(s->t, M(141), line, sizeof line, 0));
+        CHK(term_readline(s->t, M(menu ? 120 : 141), line, sizeof line, 0));
         if (!line[0]) continue;
+        if (menu && isdigit((unsigned char)line[0])) {
+            int k = atoi(line);
+            if (group == 0) {
+                const struct command *items[16];
+                if (k == 9) {
+                    int r = run_command(s, by_name("OFF"), "");
+                    if (r) return r < 0 ? r : 0;
+                } else if (k >= 1 && k <= 8 && group_items(s, k, items)) {
+                    group = k;
+                    shown = false;
+                } else CHK(outm_nl(s, 142));
+                continue;
+            }
+            if (k == 0) {
+                group = 0;
+                shown = false;
+                continue;
+            }
+            const struct command *items[16];
+            int n = group_items(s, group, items);
+            if (k < 1 || k > n) {
+                CHK(outm_nl(s, 142));
+                continue;
+            }
+            int r = run_command(s, items[k - 1], "");
+            if (r) return r < 0 ? r : 0;
+            continue;
+        }
         char cmd[32];
         const char *arg = "";
         size_t k = strcspn(line, " \t");
@@ -285,11 +392,12 @@ static int command_loop(struct sess *s) {
         str_upper(cmd);
         if (line[k]) arg = line + k + strspn(line + k, " \t");
         if (cmd[0] == '?') {
-            CHK(help(s));
+            if (menu) CHK(show_menu(s, group));
+            else CHK(help(s));
             continue;
         }
-        /* \INDEX でそのボードを読む */
-        if (cmd[0] == '\\') {
+        /* \INDEX でそのボードを読む (メニュー方式では使えない) */
+        if (cmd[0] == '\\' && !menu) {
             pthread_mutex_lock(&g_lock);
             struct board *b = board_by_index(cmd + 1);
             int no = b && board_can_read(USER(s), b) ? b->no : -1;
@@ -298,29 +406,13 @@ static int command_loop(struct sess *s) {
             else CHK(read_board(s, no, RB_NORMAL));
             continue;
         }
-        const struct command *c = NULL;
-        size_t n = strlen(cmd);
-        for (int i = 0; i < NCMD; i++)
-            if (strncmp(commands[i].name, cmd, n) == 0 && can_use(s, &commands[i])) {
-                c = &commands[i];
-                break;
-            }
+        const struct command *c = find_command(s, cmd);
         if (!c) {
             CHK(outm_nl(s, 142));
             continue;
         }
-        online_set_place(s->no, c->name);
-        if (!strcmp(c->name, "OFF")) {
-            int r = yn(s, 124);
-            if (r < 0) return r;
-            if (r) return 0;
-            continue;
-        }
-        if (!c->fn) {
-            CHK(outm_nl(s, 155));
-            continue;
-        }
-        CHK(c->fn(s, arg));
+        int r = run_command(s, c, arg);
+        if (r) return r < 0 ? r : 0;
     }
 }
 
@@ -396,6 +488,7 @@ void session_run(struct conn_arg *ca) {
         char idbuf[16];
         snprintf(idbuf, sizeof idbuf, "%d", u->id);
         bool chat_on = u->chat_on_login, secret = u->secret;
+        msg_set_esc(u->esc);
         /* 持ち時間 (ゲストと、1 日分を使い切った会員は最低持ち時間) */
         int minutes = s.uid == 0 ? g_sys.min_minutes : u->today_left;
         if (minutes < g_sys.min_minutes) minutes = g_sys.min_minutes;

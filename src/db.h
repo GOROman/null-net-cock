@@ -49,6 +49,7 @@ struct user {
     long total_sec, month_sec, prev_month_sec, today_sec;
     int pass_miss;
     bool esc, bs_one_col, menu, chat_on_login, mailbox_closed, secret;
+    bool menu_always;       /* メニュー方式で毎回メニューを出す */
 };
 
 enum board_type { BT_BOARD = 'B', BT_MAIL = 'M', BT_PROGRAM = 'P' };

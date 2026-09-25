@@ -53,7 +53,7 @@ static const struct field user_fields[] = {
     FLD(user, logins_prev, F_INT), FLD(user, total_sec, F_LONG), FLD(user, month_sec, F_LONG),
     FLD(user, prev_month_sec, F_LONG), FLD(user, today_sec, F_LONG), FLD(user, pass_miss, F_INT),
     FLD(user, esc, F_BOOL), FLD(user, bs_one_col, F_BOOL), FLD(user, menu, F_BOOL), FLD(user, chat_on_login, F_BOOL),
-    FLD(user, mailbox_closed, F_BOOL), FLD(user, secret, F_BOOL),
+    FLD(user, mailbox_closed, F_BOOL), FLD(user, secret, F_BOOL), FLD(user, menu_always, F_BOOL),
 };
 
 static const struct field board_fields[] = {

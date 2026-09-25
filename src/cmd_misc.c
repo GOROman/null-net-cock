@@ -82,6 +82,7 @@ int user_setup(struct sess *s, bool initial) {
     snprintf(u->intro, sizeof u->intro, "%s", tmp.intro);
     u->esc = tmp.esc;
     u->bs_one_col = tmp.bs_one_col;
+    msg_set_esc(tmp.esc);
     u->flags &= ~UF_NEW;
     db_save_users();
     char idbuf[16];
@@ -244,20 +245,25 @@ int cmd_uread(struct sess *s, const char *arg) {
 
 int cmd_uwrite(struct sess *s, const char *arg) { return user_setup(s, false); }
 
+/* ESC、BS テスト、メニュー方式 (Y ならさらに毎回出すか)、ログイン時のチャット */
 int cmd_mode(struct sess *s, const char *arg) {
-    int menu = yn(s, 138);
-    if (menu < 0) return menu;
-    int chat = yn(s, 140);
-    if (chat < 0) return chat;
     int esc = yn(s, 16);
     if (esc < 0) return esc;
     CHK(bs_test(s));
+    int menu = yn(s, 138);
+    if (menu < 0) return menu;
+    int always = 0;
+    if (menu && (always = yn(s, 139)) < 0) return always;
+    int chat = yn(s, 140);
+    if (chat < 0) return chat;
     pthread_mutex_lock(&g_lock);
-    USER(s)->menu = menu;
-    USER(s)->chat_on_login = chat;
     USER(s)->esc = esc;
+    USER(s)->menu = menu;
+    USER(s)->menu_always = always;
+    USER(s)->chat_on_login = chat;
     db_save_users();
     pthread_mutex_unlock(&g_lock);
+    msg_set_esc(esc);
     return outm_nl(s, 220);
 }
 
@@ -488,29 +494,20 @@ int cmd_utime(struct sess *s, const char *arg) {
     return outm_nl(s, 220);
 }
 
+/* 会員管理者を別の ID (レベル 100 以上) に移す */
 int cmd_mchange(struct sess *s, const char *arg) {
-    struct user *u = choose_user(s, 216);
+    struct user *u = choose_user(s, 136);
     if (!u) return 0;
-    struct user tmp;
     pthread_mutex_lock(&g_lock);
-    tmp = *u;
+    bool ok = u->level >= LV_SYSOP;
+    if (ok) {
+        g_sys.manager = u->id;
+        db_save_sys();
+    }
     pthread_mutex_unlock(&g_lock);
-    CHK(ask_keep(s, 19, tmp.name, sizeof tmp.name, true));
-    CHK(ask_keep(s, 20, tmp.kana, sizeof tmp.kana, true));
-    CHK(ask_keep(s, 21, tmp.addr_priv, sizeof tmp.addr_priv, true));
-    CHK(ask_keep(s, 22, tmp.zip, sizeof tmp.zip, true));
-    CHK(ask_keep(s, 23, tmp.tel, sizeof tmp.tel, true));
-    CHK(ask_keep(s, 14, tmp.birth, sizeof tmp.birth, true));
-    pthread_mutex_lock(&g_lock);
-    memcpy(u->name, tmp.name, sizeof u->name);
-    memcpy(u->kana, tmp.kana, sizeof u->kana);
-    memcpy(u->addr_priv, tmp.addr_priv, sizeof u->addr_priv);
-    memcpy(u->zip, tmp.zip, sizeof u->zip);
-    memcpy(u->tel, tmp.tel, sizeof u->tel);
-    memcpy(u->birth, tmp.birth, sizeof u->birth);
-    db_save_users();
-    pthread_mutex_unlock(&g_lock);
-    return outm_nl(s, 220);
+    if (!ok) return out(s, "==== レベル 100 以上の ID にしか移せません ====\n");
+    nc_log("CH%02d: 会員管理者を %04d に移しました", s->no, u->id);
+    return outm_nl(s, 137);
 }
 
 int cmd_idkill(struct sess *s, const char *arg) {

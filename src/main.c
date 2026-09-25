@@ -88,6 +88,11 @@ int main(int argc, char **argv) {
         if (n < 0) fprintf(stderr, "%s を読めません。内蔵の文言を使います\n", g_cfg.mes_file);
         else nc_log("%s から %d 件の文言を読み込みました", g_cfg.mes_file, n);
     }
+    if (g_cfg.mes_esc_file[0]) {
+        int n = msg_load_esc(g_cfg.mes_esc_file);
+        if (n < 0) fprintf(stderr, "%s を読めません\n", g_cfg.mes_esc_file);
+        else nc_log("%s から %d 件の ESC 版の文言を読み込みました", g_cfg.mes_esc_file, n);
+    }
     /* MESEDIT のメッセージがまだ無ければ、SYS_MES.DAT か既定の文面で埋める */
     if (!g_sys.sysmes[0][0]) {
         if (g_cfg.sysmes_file[0] && sysmes_load(g_cfg.sysmes_file) > 0)
