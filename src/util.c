@@ -90,6 +90,12 @@ size_t utf8_width(const char *s) {
     return w;
 }
 
+const char *pad(char *buf, size_t sz, const char *s, int width) {
+    int w = (int)utf8_width(s);
+    snprintf(buf, sz, "%s%*s", s, w < width ? width - w : 0, "");
+    return buf;
+}
+
 void str_upper(char *s) {
     for (; *s; s++) if ((unsigned char)*s < 0x80) *s = (char)toupper((unsigned char)*s);
 }

@@ -31,8 +31,9 @@ void print_board_list(struct sess *s, bool for_write) {
         if (show) {
             int n = board_count(i), un = board_unread(s->uid, i);
             const struct user *op = b->bop ? user_get(b->bop) : NULL;
-            snprintf(line, sizeof line, "%c%2d. \\%-10s %-40s %4d/%-4d %s%04d:%s%s\n", un ? '*' : ' ', i, b->index,
-                     b->title, un, n, M(373), b->bop, op ? op->logname : "-", M(374));
+            char t[200];
+            snprintf(line, sizeof line, "%c%2d. \\%-10s %s %4d/%-4d %s%04d:%s%s\n", un ? '*' : ' ', i, b->index,
+                     pad(t, sizeof t, b->title, 40), un, n, M(373), b->bop, op ? op->logname : "-", M(374));
             total += n;
             keep += b->keep;
         }
@@ -178,7 +179,7 @@ static int list_titles(struct sess *s, int board, int from, bool with_name, int 
         if (m) {
             char ts[32], who[80];
             fmt_time(m->t, ts, sizeof ts);
-            if (with_name) snprintf(who, sizeof who, "%-14s", name_of(m->from));
+            if (with_name) pad(who, sizeof who, name_of(m->from), 14);
             else snprintf(who, sizeof who, "%04d", m->from);
             snprintf(line, sizeof line, "%5d %s %s %s%s\n", m->seq, ts, who, m->reply_to ? "re:" : "", m->title);
         }

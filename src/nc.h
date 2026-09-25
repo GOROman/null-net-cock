@@ -128,6 +128,8 @@ void nc_log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 /* ------------------------------------------------------------ 文字列 */
 
 size_t utf8_width(const char *s);
+/* 表示幅が width になるよう空白を足した文字列を buf に作る (全角は 2 桁と数える) */
+const char *pad(char *buf, size_t sz, const char *s, int width);
 void str_upper(char *s);
 void str_trim(char *s);
 void fmt_time(time_t t, char *buf, size_t sz);
