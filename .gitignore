@@ -1,0 +1,4 @@
+/build/
+*.o
+/null-net-cock
+/data/
