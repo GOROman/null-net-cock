@@ -104,12 +104,14 @@ static void create_table(const char *table, const struct field *f, int n, const 
     exec(sql);
     /* 古いデータベースに無い列を足す */
     for (int i = 0; i < n; i++) {
-        snprintf(sql, sizeof sql, "SELECT \"%s\" FROM %s LIMIT 0", f[i].name, table);
+        snprintf(sql, sizeof sql, "SELECT 1 FROM pragma_table_info('%s') WHERE name = '%s'", table, f[i].name);
         sqlite3_stmt *st;
+        bool found = false;
         if (sqlite3_prepare_v2(db, sql, -1, &st, NULL) == SQLITE_OK) {
+            found = sqlite3_step(st) == SQLITE_ROW;
             sqlite3_finalize(st);
-            continue;
         }
+        if (found) continue;
         snprintf(sql, sizeof sql, "ALTER TABLE %s ADD COLUMN \"%s\" %s DEFAULT %s", table, f[i].name,
                  f[i].type == F_STR ? "TEXT" : "INTEGER", f[i].type == F_STR ? "''" : "0");
         exec(sql);
@@ -151,25 +153,33 @@ static void read_fields(sqlite3_stmt *st, const struct field *f, int n, void *re
 /* 表を丸ごと書き直す。keep(rec) が false のレコードは書かない */
 static void save_table(const char *table, const struct field *f, int n, const void *arr, size_t stride, int count,
                        bool (*keep)(const void *)) {
-    char sql[2048];
-    exec("BEGIN");
-    snprintf(sql, sizeof sql, "DELETE FROM %s", table);
-    exec(sql);
-    int k = snprintf(sql, sizeof sql, "INSERT INTO %s VALUES (", table);
+    char sql[4096];
+    int k = snprintf(sql, sizeof sql, "INSERT INTO %s (", table);
+    for (int i = 0; i < n; i++) k += snprintf(sql + k, sizeof sql - (size_t)k, "%s\"%s\"", i ? "," : "", f[i].name);
+    k += snprintf(sql + k, sizeof sql - (size_t)k, ") VALUES (");
     for (int i = 0; i < n; i++) k += snprintf(sql + k, sizeof sql - (size_t)k, "%s?", i ? "," : "");
     snprintf(sql + k, sizeof sql - (size_t)k, ")");
     sqlite3_stmt *st;
-    if (sqlite3_prepare_v2(db, sql, -1, &st, NULL) == SQLITE_OK) {
-        for (int r = 0; r < count; r++) {
-            const void *rec = (const char *)arr + stride * (size_t)r;
-            if (keep && !keep(rec)) continue;
-            bind_fields(st, f, n, rec);
-            sqlite3_step(st);
-            sqlite3_reset(st);
-        }
-        sqlite3_finalize(st);
+    /* 書き込めないときは消さない (前のデータを残す) */
+    if (sqlite3_prepare_v2(db, sql, -1, &st, NULL) != SQLITE_OK) {
+        nc_log("SQLite: %s (%s)", sqlite3_errmsg(db), sql);
+        return;
     }
-    exec("COMMIT");
+    exec("BEGIN");
+    char del[128];
+    snprintf(del, sizeof del, "DELETE FROM %s", table);
+    exec(del);
+    bool ok = true;
+    for (int r = 0; r < count; r++) {
+        const void *rec = (const char *)arr + stride * (size_t)r;
+        if (keep && !keep(rec)) continue;
+        bind_fields(st, f, n, rec);
+        if (sqlite3_step(st) != SQLITE_DONE) ok = false;
+        sqlite3_reset(st);
+    }
+    sqlite3_finalize(st);
+    if (!ok) nc_log("SQLite: %s の書き込みに失敗したので元に戻します", table);
+    exec(ok ? "COMMIT" : "ROLLBACK");
 }
 
 /* 表を 1 行ずつ読む。each(rec) に渡す */

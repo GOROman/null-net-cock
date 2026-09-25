@@ -166,9 +166,19 @@ def main():
         a.talk("chat:", "こんにちは")
         c.expect("こんにちは")
         a.talk("chat:", "q")
-        # 再起動しても残っていること (SQLite)
+        # 再起動しても残っていること (SQLite)。古い形式 (fid 列が無い) からの移行も、2 回の再起動で確かめる
         srv.terminate()
         srv.communicate(timeout=5)
+        import sqlite3
+        db = sqlite3.connect(os.path.join(tmp, "data", "net-cock.db"))
+        db.execute("ALTER TABLE titles DROP COLUMN fid")
+        db.commit()
+        db.close()
+        for _ in range(2):
+            srv = subprocess.Popen([BIN, "-c", conf], stderr=subprocess.PIPE)
+            time.sleep(0.5)
+            srv.terminate()
+            srv.communicate(timeout=5)
         srv = subprocess.Popen([BIN, "-c", conf], stderr=subprocess.PIPE)
         time.sleep(0.5)
         d = Client()
