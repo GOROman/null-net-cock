@@ -259,6 +259,12 @@ int user_new(int level) {
             break;
         }
     if (id < 0) return -1;
+    return user_new_at(id, level);
+}
+
+/* その番号で ID を作り直す (削除した ID の使い回しにも使う) */
+int user_new_at(int id, int level) {
+    if (id < 2 || id >= MAX_USERS) return -1;
     struct user *u = &g_users[id];
     memset(u, 0, sizeof *u);
     u->id = id;

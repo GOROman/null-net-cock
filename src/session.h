@@ -135,5 +135,12 @@ void login_call(struct sess *s);
 int bs_test(struct sess *s);
 int application_input(struct sess *s, struct application *a);
 int signup_auto(struct sess *s, bool ask_first);
+int show_user(struct sess *s, const struct user *u);
+int issue_from(const struct application *a, int level, int at); /* at > 0 ならその番号を使い回す */
+
+/* 会員管理 (cmd_member.c) */
+int cmd_idcopy(struct sess *s, const char *arg);
+int cmd_udlist(struct sess *s, const char *arg);
+int cmd_udedit(struct sess *s, const char *arg);
 
 #endif

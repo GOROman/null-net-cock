@@ -117,8 +117,8 @@ int application_input(struct sess *s, struct application *a) {
 }
 
 /* 申し込みから ID を作る。作った ID (失敗は -1) */
-static int issue_from(const struct application *a, int level) {
-    int id = user_new(level);
+int issue_from(const struct application *a, int level, int at) {
+    int id = at > 0 ? user_new_at(at, level) : user_new(level);
     if (id <= 0) return -1;
     struct user *u = &g_users[id];
     snprintf(u->name, sizeof u->name, "%s", a->name);
@@ -145,7 +145,7 @@ int signup_auto(struct sess *s, bool ask_first) {
     r = yn(s, 350);
     if (r <= 0) return r;
     pthread_mutex_lock(&g_lock);
-    int id = issue_from(&a, g_sys.temp_level);
+    int id = issue_from(&a, g_sys.temp_level, 0);
     pthread_mutex_unlock(&g_lock);
     if (id <= 0) return outm_nl(s, 351);
     nc_log("CH%02d: 仮 ID %d を自動発行", s->no, id);
@@ -215,7 +215,7 @@ int cmd_newmem(struct sess *s, const char *arg) {
     return out(s, "%s", buf);
 }
 
-static int show_user(struct sess *s, const struct user *src) {
+int show_user(struct sess *s, const struct user *src) {
     struct user u;
     pthread_mutex_lock(&g_lock);
     u = *src;
@@ -226,23 +226,34 @@ static int show_user(struct sess *s, const struct user *src) {
     CHK(out(s, "ID        : %s%04d  %s\n", g_sys.net_id, u.id, level_name(u.level)));
     CHK(out(s, "ログネーム: %s\n性別      : %s\n住所      : %s\n職業      : %s\n機種      : %s\n", u.logname,
             !strcmp(u.sex, "M") ? "男" : !strcmp(u.sex, "F") ? "女" : "-", u.addr_pub, u.job, u.machine));
-    CHK(out(s, "自己紹介  : %s\n発行      : %s\n最終ログイン: %s\n書き込み  : ボード %d / メール %d\n", u.intro, issued,
-            last, u.wb, u.wm));
-    if (IS_SYSOP(s))
+    CHK(out(s, "自己紹介  : %s\n発行      : %s\n最終ログイン: %s\n総使用時間: %ld 分  ログイン %d 回\n"
+               "書き込み  : ボード %d / メール %d / プログラム %d\n",
+            u.intro, issued, last, u.total_sec / 60, u.logins, u.wb, u.wm, u.wp));
+    if (IS_MANAGER(s))
         CHK(out(s, "[SYSOP] 氏名 %s (%s)  〒%s %s  TEL %s  生年月日 %s  レベル %d  持ち時間 %d 分\n", u.name, u.kana,
                 u.zip, u.addr_priv, u.tel, u.birth, u.level, u.day_minutes));
     return 0;
 }
 
+/* 空 Enter まで繰り返す */
 int cmd_uread(struct sess *s, const char *arg) {
-    struct user *u = NULL;
     if (arg[0]) {
         pthread_mutex_lock(&g_lock);
-        u = user_find(arg);
+        struct user *u = user_find(arg);
         pthread_mutex_unlock(&g_lock);
         if (!u) return outm_nl(s, 135);
-    } else if (!(u = choose_user(s, 134))) return 0;
-    return show_user(s, u);
+        return show_user(s, u);
+    }
+    for (;;) {
+        char a[64];
+        CHK(ask(s, 134, a, sizeof a, 0));
+        if (!a[0]) return 0;
+        pthread_mutex_lock(&g_lock);
+        struct user *u = user_find(a);
+        pthread_mutex_unlock(&g_lock);
+        if (!u) CHK(outm_nl(s, 135));
+        else CHK(show_user(s, u));
+    }
 }
 
 int cmd_uwrite(struct sess *s, const char *arg) { return user_setup(s, false); }
@@ -328,94 +339,6 @@ int cmd_version(struct sess *s, const char *arg) {
 
 /* ------------------------------------------------------------ SYSOP: 会員 */
 
-int cmd_makeid(struct sess *s, const char *arg) {
-    for (;;) {
-        int n, idx = -1;
-        pthread_mutex_lock(&g_lock);
-        struct application *list = app_list(&n);
-        for (int i = 0; i < n; i++)
-            if (!list[i].issued_id) {
-                idx = i;
-                break;
-            }
-        struct application a = idx >= 0 ? list[idx] : (struct application){0};
-        pthread_mutex_unlock(&g_lock);
-        if (idx < 0) return outm_nl(s, 29);
-        char ts[32];
-        fmt_time(a.t, ts, sizeof ts);
-        CHK(out(s, "\n#%d %s\n氏名 %s (%s)\n〒%s %s\nTEL %s\n", a.no, ts, a.name, a.kana, a.zip, a.addr, a.tel));
-        char c[16];
-        CHK(ask(s, 31, c, sizeof c, RL_UPPER));
-        if (c[0] == 'Q') return outm_nl(s, 30);
-        pthread_mutex_lock(&g_lock);
-        list = app_list(&n);
-        int id = 0;
-        if (c[0] == 'Y') {
-            id = issue_from(&a, g_sys.user_level);
-            list[idx].issued_id = id > 0 ? id : -1;
-        } else list[idx].issued_id = -1; /* 見送り */
-        app_save();
-        pthread_mutex_unlock(&g_lock);
-        if (c[0] == 'Y' && id <= 0) return outm_nl(s, 34);
-        if (id > 0) CHK(out(s, "%s%04d %s\n", g_sys.net_id, id, M(32)));
-        else CHK(outm_nl(s, 33));
-    }
-}
-
-int cmd_gulv(struct sess *s, const char *arg) {
-    for (int i = 2; i < MAX_USERS; i++) {
-        pthread_mutex_lock(&g_lock);
-        if (i >= g_nusers) {
-            pthread_mutex_unlock(&g_lock);
-            break;
-        }
-        struct user *u = user_get(i);
-        bool target = u && u->level > 0 && u->level < g_sys.user_level;
-        pthread_mutex_unlock(&g_lock);
-        if (!target) continue;
-        CHK(show_user(s, u));
-        char c[16];
-        CHK(ask(s, 358, c, sizeof c, RL_UPPER));
-        if (c[0] == 'Q') return 0;
-        pthread_mutex_lock(&g_lock);
-        if (c[0] == 'Y') u->level = g_sys.user_level;
-        if (c[0] == 'D') u->flags |= UF_DELETED;
-        db_save_users();
-        pthread_mutex_unlock(&g_lock);
-        if (c[0] == 'Y') CHK(outm_nl(s, 359));
-        if (c[0] == 'D') CHK(outm_nl(s, 204));
-    }
-    return 0;
-}
-
-int cmd_ulevel(struct sess *s, const char *arg) {
-    struct user *u = choose_user(s, 216);
-    if (!u) return 0;
-    CHK(out(s, "%04d:%s  %d\n", u->id, u->logname, u->level));
-    int v;
-    CHK(ask_int(s, 153, u->level, &v));
-    if (v < 0 || v > 255) return 0;
-    pthread_mutex_lock(&g_lock);
-    u->level = v;
-    db_save_users();
-    pthread_mutex_unlock(&g_lock);
-    return outm_nl(s, 220);
-}
-
-int cmd_utime(struct sess *s, const char *arg) {
-    struct user *u = choose_user(s, 216);
-    if (!u) return 0;
-    CHK(out(s, "%04d:%s  %d\n", u->id, u->logname, u->day_minutes));
-    int v;
-    CHK(ask_int(s, 154, u->day_minutes, &v));
-    if (v < 0 || v > 1440) return 0;
-    pthread_mutex_lock(&g_lock);
-    u->day_minutes = u->today_left = v;
-    db_save_users();
-    pthread_mutex_unlock(&g_lock);
-    return outm_nl(s, 220);
-}
-
 /* 会員管理者を別の ID (レベル 100 以上) に移す */
 int cmd_mchange(struct sess *s, const char *arg) {
     struct user *u = choose_user(s, 136);
@@ -431,65 +354,6 @@ int cmd_mchange(struct sess *s, const char *arg) {
     nc_log("CH%02d: 会員管理者を %04d に移しました", s->no, u->id);
     return outm_nl(s, 137);
 }
-
-int cmd_idkill(struct sess *s, const char *arg) {
-    struct user *u = choose_user(s, 205);
-    if (!u) return 0;
-    if (u->id <= 1 || u->id == s->uid) return out(s, "==== この ID は削除できません ====\n");
-    CHK(out(s, "%04d:%s\n", u->id, u->logname));
-    int r = yn_neg(s, 203);
-    if (r <= 0) return r;
-    pthread_mutex_lock(&g_lock);
-    u->flags |= UF_DELETED;
-    db_save_users();
-    pthread_mutex_unlock(&g_lock);
-    nc_log("CH%02d: ID %d を削除", s->no, u->id);
-    return outm_nl(s, 204);
-}
-
-int cmd_idset(struct sess *s, const char *arg) {
-    char a[64];
-    CHK(ask(s, 216, a, sizeof a, 0));
-    if (!a[0]) return 0;
-    int id = atoi(a);
-    if (id <= 1 || id >= MAX_USERS) return outm_nl(s, 135);
-    static const struct { int msg, flag; } q[] = {{227, UF_GUEST}, {228, UF_DELETED}, {229, UF_NEW}};
-    pthread_mutex_lock(&g_lock);
-    struct user *u = &g_users[id];
-    bool exists = id < g_nusers && u->id == id;
-    pthread_mutex_unlock(&g_lock);
-    if (!exists) return outm_nl(s, 135);
-    int flags = u->flags;
-    for (size_t i = 0; i < sizeof q / sizeof q[0]; i++) {
-        char c[16];
-        CHK(ask(s, q[i].msg, c, sizeof c, RL_UPPER));
-        if (c[0] == 'N') flags |= q[i].flag;
-        else if (c[0] == 'Y') flags &= ~q[i].flag;
-    }
-    pthread_mutex_lock(&g_lock);
-    u->flags = flags;
-    db_save_users();
-    pthread_mutex_unlock(&g_lock);
-    return outm_nl(s, 220);
-}
-
-int cmd_upass(struct sess *s, const char *arg) {
-    struct user *u = choose_user(s, 247);
-    if (!u) return 0;
-    CHK(out(s, "%s%s\n%s%s\n", M(250), u->logname, M(248), u->pass));
-    int r = yn_neg(s, 249);
-    if (r <= 0) return r;
-    char p[32];
-    CHK(ask(s, 24, p, sizeof p, RL_UPPER));
-    if (!p[0]) return 0;
-    pthread_mutex_lock(&g_lock);
-    snprintf(u->pass, sizeof u->pass, "%s", p);
-    db_save_users();
-    pthread_mutex_unlock(&g_lock);
-    return outm_nl(s, 133);
-}
-
-/* ------------------------------------------------------------ SYSOP: ボード */
 
 /* y/n の問い。空 Enter は今の値のまま。neg は「〜しませんね」形式 (N で真) */
 static int yn_keep(struct sess *s, int id, bool cur, bool neg) {

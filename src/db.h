@@ -179,6 +179,7 @@ void db_save_sys(void);
 struct user *user_get(int id);                  /* 存在し削除されていない会員 */
 struct user *user_find(const char *id_or_name); /* ID 番号かログネームで */
 int user_new(int level);                        /* 新しい ID を発行 */
+int user_new_at(int id, int level);
 const char *level_name(int level);
 
 int *read_ptr(int user, int board);             /* 既読位置 (最後に読んだ番号) */

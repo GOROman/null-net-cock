@@ -16,6 +16,7 @@ test: null-net-cock
 	python3 tests/xfer.py ./null-net-cock
 	python3 tests/modem.py ./null-net-cock
 	python3 tests/sysop.py ./null-net-cock
+	python3 tests/member.py ./null-net-cock
 
 clean:
 	rm -rf build null-net-cock
