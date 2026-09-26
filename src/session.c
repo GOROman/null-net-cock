@@ -132,9 +132,9 @@ static const struct command {
     {"USTAT", 30, 112, cmd_ustat, false},
     {"LOG", 0, 64, cmd_log, false},
     {"LLIST", -1, 66, cmd_llist, false},
-    {"LCSET", 100, 115, NULL, false},
-    {"LBUSY", 100, 119, NULL, false},
-    {"LINESET", 100, 110, NULL, false},
+    {"LCSET", 100, 115, cmd_lcset, false},
+    {"LBUSY", 100, 119, cmd_lbusy, false},
+    {"LINESET", 100, 110, cmd_lineset, false},
     {"MODE", 30, 68, cmd_mode, false},
     {"MREAD", 30, 56, cmd_mread, false},
     {"MWRITE", 30, 57, cmd_mwrite, false},
@@ -149,10 +149,10 @@ static const struct command {
     {"CHAT", -1, 65, cmd_chat, false},
     {"COFF", -1, 81, cmd_coff, false},
     {"CON", -1, 82, cmd_con, false},
-    {"CMODE", 100, 96, NULL, false},
-    {"CTIME", 100, 92, NULL, false},
+    {"CMODE", 100, 96, cmd_cmode, false},
+    {"CTIME", 100, 92, cmd_ctime, false},
     {"VERSION", 0, 113, cmd_version, false},
-    {"ACCESS", 0, 91, NULL, false},
+    {"ACCESS", 0, 91, cmd_access, false},
     {"AON", 100, 117, cmd_aon, false},
     {"AOFF", 100, 118, cmd_aoff, false},
     {"ALARM", 100, 106, NULL, false},
@@ -161,13 +161,13 @@ static const struct command {
     {"GULV", 100, 55, cmd_gulv, true},
     {"SECRET", 100, 93, cmd_secret, false},
     {"SECOFF", 100, 94, cmd_secoff, false},
-    {"SCSET", 100, 101, NULL, false},
-    {"SCLIST", 100, 102, NULL, false},
+    {"SCSET", 100, 101, cmd_scset, false},
+    {"SCLIST", 100, 102, cmd_sclist, false},
     {"STORE", 100, 88, cmd_store, false},
-    {"SDTIME", 100, 103, NULL, false},
+    {"SDTIME", 100, 103, cmd_sdtime, false},
     {"SYSSET", 100, 109, cmd_sysset, false},
     {"SIGNUP", 100, 111, cmd_signup, false},
-    {"IMODE", 100, 114, NULL, false},
+    {"IMODE", 100, 114, cmd_imode, false},
     {"FILEM", 100, 98, cmd_filem, false},
     {"HFCONT", 100, 95, NULL, false},
     {"REPORT", 100, 104, cmd_report, false},
@@ -215,6 +215,18 @@ static int login(struct sess *s) {
         CHK(ask(s, 0, id, sizeof id, RL_UPPER));
         if (!id[0]) continue;
         if (!strcmp(id, "GUEST") || !strcmp(id, "0")) {
+            pthread_mutex_lock(&g_lock);
+            int need = g_sys.lines[s->no].level;
+            bool aoff = g_sys.aoff;
+            pthread_mutex_unlock(&g_lock);
+            if (aoff) {
+                outm_nl(s, 5);
+                return T_DISCONNECT;
+            }
+            if (need > 0) {
+                outm_nl(s, 4);
+                return T_DISCONNECT;
+            }
             s->uid = 0;
             return 0;
         }
@@ -228,6 +240,7 @@ static int login(struct sess *s) {
             db_save_users();
             result = 3;
         } else if (g_sys.aoff && u->level < LV_SYSOP) result = 5;
+        else if (u->level < g_sys.lines[s->no].level) result = 4;
         else {
             char idbuf[16];
             snprintf(idbuf, sizeof idbuf, "%d", u->id);
@@ -241,7 +254,7 @@ static int login(struct sess *s) {
             return 0;
         }
         CHK(outm_nl(s, result));
-        if (result == 5 || result == 7) return T_DISCONNECT;
+        if (result == 4 || result == 5 || result == 7) return T_DISCONNECT;
         tries++;
     }
     outm_nl(s, 6);
@@ -268,6 +281,14 @@ static int opening(struct sess *s) {
         pthread_mutex_unlock(&g_lock);
     }
     CHK(login_mail_notice(s));
+    CHK(sched_opening(s));
+    pthread_mutex_lock(&g_lock);
+    bool chat = g_online[s->no].chat;
+    int nmsgs = g_nmsgs;
+    pthread_mutex_unlock(&g_lock);
+    CHK(outm_nl(s, chat ? 151 : 150));
+    /* タイトルが多くなったら SYSOP にファイルメンテナンスを促す */
+    if (IS_SYSOP(s) && nmsgs > 3500) CHK(outm_nl(s, 360));
     return 0;
 }
 
@@ -425,8 +446,10 @@ static void account_logout(struct sess *s, time_t now) {
     u->total_sec += used;
     u->month_sec += used;
     u->today_sec += used;
-    int left = u->today_left - (int)(used / 60);
-    u->today_left = left < 0 ? 0 : left;
+    /* 本日の残りは、数えた時間だけ減らす */
+    int counted = s->start_left - g_online[s->no].left;
+    int left = u->today_left - counted / 60;
+    if (!g_online[s->no].unlimited) u->today_left = left < 0 ? 0 : left;
     if (!u->secret) {
         struct logent e = {s->login_at, now, s->no, u->id, "", ""};
         snprintf(e.logname, sizeof e.logname, "%s", u->logname);
@@ -489,6 +512,7 @@ void session_run(struct conn_arg *ca) {
         snprintf(idbuf, sizeof idbuf, "%d", u->id);
         bool chat_on = u->chat_on_login, secret = u->secret;
         msg_set_esc(u->esc);
+        t.bs_one_col = u->bs_one_col;
         /* 持ち時間 (ゲストと、1 日分を使い切った会員は最低持ち時間) */
         int minutes = s.uid == 0 ? g_sys.min_minutes : u->today_left;
         if (minutes < g_sys.min_minutes) minutes = g_sys.min_minutes;
@@ -497,13 +521,19 @@ void session_run(struct conn_arg *ca) {
         online_set_user(s.no, idbuf, u->logname);
         g_online[s.no].chat = chat_on;
         g_online[s.no].secret = secret;
-        if (!unlimited) t.deadline = now + minutes * 60;
+        pthread_mutex_lock(&g_lock);
+        g_online[s.no].uid = u->id;
+        g_online[s.no].left = minutes * 60;
+        g_online[s.no].unlimited = unlimited;
+        pthread_mutex_unlock(&g_lock);
+        s.start_left = minutes * 60;
         nc_log("CH%02d: %04d %s がログイン", s.no, u->id, u->logname);
 
         if (u->flags & UF_NEW) r = user_setup(&s, true);
         if (r >= 0) r = opening(&s);
         if (r >= 0) {
             notify_others(&s, 160);
+            login_call(&s);
             if (s.uid == 0 && g_sys.signup == SIGNUP_AUTO) r = signup_auto(&s, true);
             if (r >= 0) r = command_loop(&s);
         }

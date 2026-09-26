@@ -15,6 +15,7 @@ struct sess {
     time_t login_at;
     char peer[64];
     char speed[32];
+    int start_left;         /* ログインしたときの持ち時間 (秒) */
     /* 直前に読んだメッセージ (F でリプライするため) */
     int last_board, last_seq;
     /* 書きかけの文章 (Q で抜けたとき残す) */
@@ -115,6 +116,22 @@ int cmd_aoff(struct sess *s, const char *arg);
 int cmd_filem(struct sess *s, const char *arg);
 int cmd_report(struct sess *s, const char *arg);
 int user_setup(struct sess *s, bool initial);
+
+/* 回線と時間・スケジュール (cmd_sys.c) */
+int cmd_lineset(struct sess *s, const char *arg);
+int cmd_ctime(struct sess *s, const char *arg);
+int cmd_lbusy(struct sess *s, const char *arg);
+int cmd_access(struct sess *s, const char *arg);
+int cmd_sdtime(struct sess *s, const char *arg);
+int cmd_scset(struct sess *s, const char *arg);
+int cmd_sclist(struct sess *s, const char *arg);
+int sched_opening(struct sess *s);
+
+/* チャット (cmd_chat.c) */
+int cmd_cmode(struct sess *s, const char *arg);
+int cmd_imode(struct sess *s, const char *arg);
+int cmd_lcset(struct sess *s, const char *arg);
+void login_call(struct sess *s);
 int bs_test(struct sess *s);
 int application_input(struct sess *s, struct application *a);
 int signup_auto(struct sess *s, bool ask_first);

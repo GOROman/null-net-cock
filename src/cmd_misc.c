@@ -30,6 +30,7 @@ int bs_test(struct sess *s) {
     int r = yn(s, 17);
     if (r < 0) return r;
     USER(s)->bs_one_col = r;
+    s->t->bs_one_col = r;
     return 0;
 }
 
@@ -82,6 +83,7 @@ int user_setup(struct sess *s, bool initial) {
     snprintf(u->intro, sizeof u->intro, "%s", tmp.intro);
     u->esc = tmp.esc;
     u->bs_one_col = tmp.bs_one_col;
+    s->t->bs_one_col = tmp.bs_one_col;
     msg_set_esc(tmp.esc);
     u->flags &= ~UF_NEW;
     db_save_users();
@@ -322,86 +324,6 @@ int cmd_cls(struct sess *s, const char *arg) { return outm_nl(s, 336); }
 
 int cmd_version(struct sess *s, const char *arg) {
     return out(s, "null-net-cock %s (NET-COCK 互換ホスト)\n", NC_VERSION);
-}
-
-/* ------------------------------------------------------------ 回線・チャット */
-
-int cmd_llist(struct sess *s, const char *arg) {
-    CHK(outm_nl(s, 148));
-    CHK(outm_nl(s, 149));
-    time_t now = time(NULL);
-    for (int i = 1; i <= g_cfg.max_lines; i++) {
-        char line[256];
-        pthread_mutex_lock(&g_lock);
-        struct online o = g_online[i];
-        pthread_mutex_unlock(&g_lock);
-        if (!o.used || !o.id[0] || (o.secret && !IS_SYSOP(s)))
-            snprintf(line, sizeof line, "%2d.\t%s\n", i, M(144));
-        else {
-            long m = (long)(now - o.since) / 60;
-            snprintf(line, sizeof line, "%2d.\t%-8s %s\t%3ld:%02ld\t%04d:%s\n", i, o.place, o.chat ? "C" : "-",
-                     m / 60, m % 60, atoi(o.id), o.handle);
-        }
-        CHK(out(s, "%s", line));
-    }
-    return 0;
-}
-
-static int set_chat(struct sess *s, bool on) {
-    pthread_mutex_lock(&g_lock);
-    g_online[s->no].chat = on;
-    pthread_mutex_unlock(&g_lock);
-    return outm_nl(s, on ? 151 : 150);
-}
-
-int cmd_coff(struct sess *s, const char *arg) { return set_chat(s, false); }
-int cmd_con(struct sess *s, const char *arg) { return set_chat(s, true); }
-
-/* チャット。引数に回線番号を付けるとその回線への電報 */
-int cmd_chat(struct sess *s, const char *arg) {
-    char name[80];
-    snprintf(name, sizeof name, "%02d:%s", s->no, USER(s)->logname);
-    if (isdigit((unsigned char)arg[0])) {
-        int to = atoi(arg);
-        char text[400], msg[512];
-        const char *p = strchr(arg, ' ');
-        if (p) snprintf(text, sizeof text, "%s", p + 1);
-        else CHK(ask(s, 156, text, sizeof text, 0));
-        if (!text[0]) return 0;
-        pthread_mutex_lock(&g_lock);
-        bool ok = to >= 1 && to <= MAX_LINES && g_online[to].used && g_online[to].id[0];
-        pthread_mutex_unlock(&g_lock);
-        if (!ok) return outm_nl(s, 144);
-        snprintf(msg, sizeof msg, "<<電報 %s>> %s", name, text);
-        notice_push(to, N_TELEGRAM, msg);
-        return 0;
-    }
-    bool was = g_online[s->no].chat;
-    g_online[s->no].chat = true;
-    CHK(outm_nl(s, 162));
-    char msg[512];
-    snprintf(msg, sizeof msg, "[%s] チャットに入りました", name);
-    for (int i = 1; i <= MAX_LINES; i++)
-        if (i != s->no && g_online[i].used && g_online[i].id[0] && g_online[i].chat) notice_push(i, N_CHAT, msg);
-    int r = 0;
-    for (;;) {
-        char text[400];
-        if ((r = ask(s, 156, text, sizeof text, 0)) < 0) break;
-        if (!text[0]) continue;
-        if ((text[0] == 'Q' || text[0] == 'q') && !text[1]) {
-            r = outm_nl(s, 157);
-            break;
-        }
-        if (!strcmp(text, "?")) {
-            if ((r = out(s, "%s\n", M(162))) < 0) break;
-            continue;
-        }
-        snprintf(msg, sizeof msg, "[%s] %s", name, text);
-        for (int i = 1; i <= MAX_LINES; i++)
-            if (i != s->no && g_online[i].used && g_online[i].id[0] && g_online[i].chat) notice_push(i, N_CHAT, msg);
-    }
-    g_online[s->no].chat = was;
-    return r < 0 ? r : 0;
 }
 
 /* ------------------------------------------------------------ SYSOP: 会員 */

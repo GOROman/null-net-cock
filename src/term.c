@@ -31,6 +31,7 @@ void term_init(struct term *t, int fd, int no, int notify_rd, const char *code, 
     t->notify_rd = notify_rd;
     t->to_term = t->from_term = (iconv_t)-1;
     t->rows = 24;
+    t->bs_one_col = true;
     t->last_input = time(NULL);
     t->telnet = telnet;
     term_set_code(t, strcmp(code, "utf8") == 0 ? CODE_UTF8 : CODE_SJIS);
@@ -240,6 +241,7 @@ static int show_notices(struct term *t, const char *prompt, const char *typed, b
             term_printf(t, "\n\n*** %s ***\n", text);
             return T_KICKED;
         }
+        if (kind == N_TIMEUP) return T_TIMEUP;
         term_printf(t, "\n%s", text);
         shown = true;
     }
@@ -299,17 +301,21 @@ int term_readline(struct term *t, const char *prompt, char *out, size_t outsz, i
                     size_t s = len - 1;
                     while (s > 0 && ((unsigned char)line[s] & 0xC0) == 0x80) s--;
                     int w = mask ? 1 : char_width(line + s, len - s);
+                    if (w == 2 && !t->bs_one_col) w = 1; /* BS 1 個で全角 1 文字戻る端末 */
                     len = s;
                     line[len] = 0;
-                    for (int i = 0; i < w; i++) term_write_raw(t, "\b \b", 3);
+                    if (!(flags & RL_NOECHO))
+                        for (int i = 0; i < w; i++) term_write_raw(t, "\b \b", 3);
                 }
             } else if (c == 0x15) { /* Ctrl-U: 行を消す */
                 while (len > 0) {
                     size_t s = len - 1;
                     while (s > 0 && ((unsigned char)line[s] & 0xC0) == 0x80) s--;
                     int w = mask ? 1 : char_width(line + s, len - s);
+                    if (w == 2 && !t->bs_one_col) w = 1;
                     len = s;
-                    for (int i = 0; i < w; i++) term_write_raw(t, "\b \b", 3);
+                    if (!(flags & RL_NOECHO))
+                        for (int i = 0; i < w; i++) term_write_raw(t, "\b \b", 3);
                 }
                 line[0] = 0;
             } else if (c >= 0x20) {
@@ -326,7 +332,8 @@ int term_readline(struct term *t, const char *prompt, char *out, size_t outsz, i
                         memcpy(line + len, u8, ul);
                         len += ul;
                         line[len] = 0;
-                        if (mask) term_write_raw(t, "*", 1);
+                        if (flags & RL_NOECHO) {
+                        } else if (mask) term_write_raw(t, "*", 1);
                         else term_write_raw(t, t->in, cl); /* 受け取ったまま返す */
                     } else term_write_raw(t, "\a", 1);
                 }

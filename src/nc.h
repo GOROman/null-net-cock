@@ -89,9 +89,10 @@ struct term {
     char tail[16];          /* 「NO CARRIER」を探すための受信の末尾 */
     bool warned;            /* 持ち時間の予告を出した */
     bool warn_pending;
+    bool bs_one_col;        /* BS 1 個で 1 桁戻る端末 (全角 1 文字を消すのに BS を 2 個送る) */
 };
 
-enum read_flags { RL_MASK = 1, RL_UPPER = 2, RL_RAW = 4 };
+enum read_flags { RL_MASK = 1, RL_UPPER = 2, RL_RAW = 4, RL_NOECHO = 8 };
 enum { CARRIER_DCD = 1, CARRIER_TEXT = 2 };
 
 /* term_readline などの戻り値 */
@@ -119,7 +120,7 @@ void term_purge(struct term *t, int quiet_ms);
 
 /* ------------------------------------------------------------ 在室者と通知 */
 
-enum notice_kind { N_TELEGRAM, N_CHAT, N_SYSTEM, N_KICK };
+enum notice_kind { N_TELEGRAM, N_CHAT, N_SYSTEM, N_KICK, N_TIMEUP };
 
 struct online {
     bool used;
@@ -130,6 +131,13 @@ struct online {
     char peer[64];
     time_t since;
     bool chat;              /* チャットを受け付ける */
+    int left;               /* 残りの持ち時間 (秒) */
+    bool unlimited;         /* 時間を数えない */
+    bool counting;          /* 今、時間を数えている */
+    bool warned;
+    int uid;                /* ログイン中の ID (-1 はまだ) */
+    unsigned char chat_to[MAX_LINES + 1]; /* 相手の回線ごとのチャットの状態: 0 on / 1 off / 2 受信だけ */
+    bool local[MAX_LINES + 1];            /* .U で登録したローカル送出先 */
     bool secret;            /* 極秘モード (LLIST に出さない) */
     int notify_wr;
     int notify_rd;
@@ -180,5 +188,9 @@ void session_run(struct conn_arg *ca); /* セッションだけ (モデムの回
 /* ------------------------------------------------------------ モデム */
 
 void modem_start(void);
+
+/* ------------------------------------------------------------ 監視 (時間・スケジュール・SDTIME) */
+
+void monitor_start(void);
 
 #endif

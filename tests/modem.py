@@ -71,7 +71,7 @@ def main():
         fm.expect(">")
         fm.send("LLIST\r")
         got = fm.expect(">")
-        assert " 1." in got and "Guest" in got, got
+        assert " 1*" in got and "Guest" in got, got
         # キャリア断 → 切断して再初期化
         fm.send("\r\nNO CARRIER\r\n")
         fm.expect("ATZ")
@@ -89,7 +89,7 @@ def main():
         assert "01-2400/V42BIS" in got, got
         a.send("LLIST")
         got = a.expect(">")
-        assert " 2." in got and "Sysop" in got, got
+        assert "Sysop" in got and "0000:Guest" not in got, got
         print("OK: モデム回線テスト通過")
     finally:
         srv.terminate()

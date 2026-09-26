@@ -48,6 +48,7 @@ static int claim(int no, const char *peer) {
         o->used = true;
         o->no = no;
         o->since = time(NULL);
+        o->uid = -1;
         snprintf(o->peer, sizeof o->peer, "%s", peer);
         int p[2];
         if (pipe(p) == 0) {

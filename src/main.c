@@ -83,6 +83,9 @@ int main(int argc, char **argv) {
         fprintf(stderr, "%s/net-cock.db を開けません\n", g_cfg.data_dir);
         return 1;
     }
+    /* LCSET の「次のシステムダウンまで」は起動し直したら消す */
+    for (int i = 0; i < g_nusers; i++)
+        if (g_users[i].lcall == 1) g_users[i].lcall = 0;
     if (g_cfg.mes_file[0]) {
         int n = msg_load(g_cfg.mes_file);
         if (n < 0) fprintf(stderr, "%s を読めません。内蔵の文言を使います\n", g_cfg.mes_file);
@@ -117,6 +120,7 @@ int main(int argc, char **argv) {
     nc_log("%s (null-net-cock %s) を起動しました。TCP %s / 最大 %d 回線", g_cfg.bbs_name, NC_VERSION,
            g_cfg.listen, g_cfg.max_lines);
     modem_start();
+    monitor_start();
 
     for (;;) {
         struct sockaddr_in peer;

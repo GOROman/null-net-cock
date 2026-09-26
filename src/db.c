@@ -54,6 +54,8 @@ static const struct field user_fields[] = {
     FLD(user, prev_month_sec, F_LONG), FLD(user, today_sec, F_LONG), FLD(user, pass_miss, F_INT),
     FLD(user, esc, F_BOOL), FLD(user, bs_one_col, F_BOOL), FLD(user, menu, F_BOOL), FLD(user, chat_on_login, F_BOOL),
     FLD(user, mailbox_closed, F_BOOL), FLD(user, secret, F_BOOL), FLD(user, menu_always, F_BOOL),
+    FLD(user, chat_esc, F_BOOL), FLD(user, chat_noecho, F_BOOL), FLD(user, chat_self, F_BOOL),
+    FLD(user, chat_byid, F_BOOL), FLD(user, lcall, F_INT),
 };
 
 static const struct field board_fields[] = {
@@ -77,6 +79,12 @@ static const struct field app_fields[] = {
     FLD(application, no, F_INT), FLD(application, t, F_LONG), FLD(application, name, F_STR),
     FLD(application, kana, F_STR), FLD(application, addr, F_STR), FLD(application, zip, F_STR),
     FLD(application, tel, F_STR), FLD(application, pass, F_STR), FLD(application, issued_id, F_INT),
+};
+
+static const struct field sched_fields[] = {
+    FLD(sched, no, F_INT), FLD(sched, spot, F_BOOL), FLD(sched, start, F_STR), FLD(sched, end, F_STR),
+    FLD(sched, kind, F_INT), FLD(sched, date, F_STR), FLD(sched, wday, F_INT), FLD(sched, hhmm, F_STR),
+    FLD(sched, down, F_BOOL), FLD(sched, timer_wday, F_INT), FLD(sched, timer_hhmm, F_STR), FLD(sched, msg, F_STR),
 };
 
 static const struct field log_fields[] = {
@@ -260,6 +268,12 @@ int user_new(int level) {
     u->issued = time(NULL);
     u->bs_one_col = true;
     u->chat_on_login = true;
+    u->menu = g_sys.imode_menu;
+    u->menu_always = g_sys.imode_menu_always;
+    u->chat_esc = g_sys.imode_chat_esc;
+    u->chat_noecho = g_sys.imode_chat_noecho;
+    u->chat_self = g_sys.imode_chat_self;
+    u->chat_byid = g_sys.imode_chat_byid;
     if (id + 1 > g_nusers) g_nusers = id + 1;
     for (int b = 0; b < MAX_BOARDS; b++) {
         *bset_flag(id, b) = 'Y';
@@ -312,7 +326,16 @@ static int age_of(const struct user *u) {
     return age;
 }
 
+/* CTIME の表で、今の時間が禁止されていれば true */
+bool time_forbidden(void) {
+    time_t now = time(NULL);
+    struct tm tm;
+    localtime_r(&now, &tm);
+    return g_sys.ctime_tab[tm.tm_wday][tm.tm_hour] != 0;
+}
+
 static bool board_common(const struct user *u, const struct board *b) {
+    if (b->timelimit && time_forbidden()) return false;
     if (b->age_max > 0) {
         int age = age_of(u);
         if (age < b->age_min || age >= b->age_max) return false;
@@ -628,6 +651,59 @@ struct application *app_list(int *n) {
     return g_apps;
 }
 
+/* ------------------------------------------------------------ スケジュール */
+
+static struct sched g_sched[32];
+static int sched_n;
+
+static void sched_save(void) {
+    save_table("sched", sched_fields, NF(sched_fields), g_sched, sizeof *g_sched, sched_n, NULL);
+}
+static void each_sched(void *r) {
+    if (sched_n < 32) g_sched[sched_n++] = *(struct sched *)r;
+}
+struct sched *sched_list(int *n) {
+    *n = sched_n;
+    return g_sched;
+}
+int sched_add(const struct sched *s) {
+    if (sched_n >= 32) return -1;
+    g_sched[sched_n] = *s;
+    g_sched[sched_n].no = sched_n + 1;
+    sched_n++;
+    sched_save();
+    return 0;
+}
+void sched_del(int i) {
+    if (i < 0 || i >= sched_n) return;
+    memmove(&g_sched[i], &g_sched[i + 1], sizeof g_sched[0] * (size_t)(sched_n - i - 1));
+    sched_n--;
+    for (int k = 0; k < sched_n; k++) g_sched[k].no = k + 1;
+    sched_save();
+}
+
+int log_all(struct logent *out, int max) {
+    int n = 0;
+    for (int k = 0; k < log_n && n < max; k++) out[n++] = g_log[(log_head + k) % LOG_MAX];
+    return n;
+}
+
+void log_remove_user(int id) {
+    struct logent *tmp = malloc(sizeof *tmp * LOG_MAX);
+    int n = 0;
+    for (int k = 0; k < log_n; k++) {
+        struct logent *e = &g_log[(log_head + k) % LOG_MAX];
+        if (e->id != id) tmp[n++] = *e;
+    }
+    memcpy(g_log, tmp, sizeof *tmp * (size_t)n);
+    log_n = n;
+    log_head = 0;
+    free(tmp);
+    char sql[96];
+    snprintf(sql, sizeof sql, "DELETE FROM log WHERE id = %d", id);
+    exec(sql);
+}
+
 /* ------------------------------------------------------------ システム設定 */
 
 static void sys_put(sqlite3_stmt *st, const char *k, const char *v) {
@@ -647,12 +723,25 @@ void db_save_sys(void) {
     PUT(min_minutes, "%d") PUT(user_minutes, "%d") PUT(user_level, "%d") PUT(temp_level, "%d")
     PUT(chat_level, "%d") PUT(mail_size, "%d") PUT(signup, "%d") PUT(manager, "%d") PUT(aoff, "%d")
     PUT(total_logins, "%ld") PUT(guest_logins, "%ld")
+    PUT(chat_call_level, "%d") PUT(imode_menu, "%d") PUT(imode_menu_always, "%d") PUT(imode_chat_esc, "%d")
+    PUT(imode_chat_noecho, "%d") PUT(imode_chat_self, "%d") PUT(imode_chat_byid, "%d") PUT(keylock, "%d")
 #undef PUT
     for (int i = 0; i < 10; i++) {
         char k[16];
         snprintf(k, sizeof k, "sysmes%d", i);
         sys_put(st, k, g_sys.sysmes[i]);
     }
+    /* 回線ごとの設定は「レベル,モード」を ; で並べる。CTIME の表は 168 文字の 0/1 */
+    char big[4096];
+    size_t l = 0;
+    for (int i = 0; i <= MAX_LINES; i++)
+        l += (size_t)snprintf(big + l, sizeof big - l, "%d,%d,%d,%d;", g_sys.lines[i].level, g_sys.lines[i].mode,
+                              g_sys.chat_limited[i], g_sys.busy_line[i]);
+    sys_put(st, "lines", big);
+    for (int d = 0; d < 7; d++)
+        for (int h = 0; h < 24; h++) big[d * 24 + h] = g_sys.ctime_tab[d][h] ? '1' : '0';
+    big[168] = 0;
+    sys_put(st, "ctime", big);
     exec("COMMIT");
     sqlite3_finalize(st);
 }
@@ -667,7 +756,25 @@ static void load_sys(void) {
 #define GET(name) else if (!strcmp(k, #name)) g_sys.name = atol(v);
         GET(min_minutes) GET(user_minutes) GET(user_level) GET(temp_level) GET(chat_level) GET(mail_size)
         GET(signup) GET(manager) GET(aoff) GET(total_logins) GET(guest_logins)
+        GET(chat_call_level) GET(imode_menu) GET(imode_menu_always) GET(imode_chat_esc) GET(imode_chat_noecho)
+        GET(imode_chat_self) GET(imode_chat_byid) GET(keylock)
 #undef GET
+        else if (!strcmp(k, "lines")) {
+            const char *p = v;
+            for (int i = 0; i <= MAX_LINES && *p; i++) {
+                int a = 0, b = 0, c = 0, d = 0;
+                sscanf(p, "%d,%d,%d,%d", &a, &b, &c, &d);
+                g_sys.lines[i].level = a;
+                g_sys.lines[i].mode = b;
+                g_sys.chat_limited[i] = c;
+                g_sys.busy_line[i] = d;
+                const char *semi = strchr(p, ';');
+                if (!semi) break;
+                p = semi + 1;
+            }
+        } else if (!strcmp(k, "ctime")) {
+            for (int i = 0; i < 168 && v[i]; i++) g_sys.ctime_tab[i / 24][i % 24] = v[i] == '1';
+        }
         else if (!strncmp(k, "sysmes", 6)) {
             int i = atoi(k + 6);
             if (i >= 0 && i < 10) snprintf(g_sys.sysmes[i], sizeof g_sys.sysmes[i], "%s", v);
@@ -701,6 +808,7 @@ int db_open(void) {
     create_table("log", log_fields, NF(log_fields), NULL);
     create_table("newmem", app_fields, NF(app_fields), NULL);
     exec("CREATE TABLE IF NOT EXISTS sys (key TEXT PRIMARY KEY, value TEXT)");
+    create_table("sched", sched_fields, NF(sched_fields), NULL);
 
     /* 既定値。ネットワーク ID の初期値は NET-COCK の配布データと同じ TEST */
     snprintf(g_sys.net_id, sizeof g_sys.net_id, "%s", g_cfg.net_id[0] ? g_cfg.net_id : "TEST");
@@ -712,6 +820,7 @@ int db_open(void) {
     g_sys.mail_size = 8192;
     g_sys.signup = SIGNUP_AUTO;
     g_sys.manager = 1;
+    g_sys.chat_call_level = 0;
 
     load_sys();
     load_table("users", user_fields, NF(user_fields), sizeof(struct user), "ORDER BY id", each_user);
@@ -726,6 +835,7 @@ int db_open(void) {
         g_log[log_n - 1 - i] = t;
     }
     load_table("newmem", app_fields, NF(app_fields), sizeof(struct application), "ORDER BY no", each_app);
+    load_table("sched", sched_fields, NF(sched_fields), sizeof(struct sched), "ORDER BY no", each_sched);
     g_sys.started = time(NULL);
 
     /* 0 番はメール (一覧には出さない) */

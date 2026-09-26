@@ -17,6 +17,7 @@ def wait_port(timeout=10):
     while time.time() < end:
         try:
             socket.create_connection(("127.0.0.1", PORT), timeout=1).close()
+            time.sleep(0.3)  # 確かめるための接続が回線を返すのを待つ
             return
         except OSError:
             time.sleep(0.1)

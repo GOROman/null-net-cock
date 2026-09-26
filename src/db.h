@@ -50,6 +50,10 @@ struct user {
     int pass_miss;
     bool esc, bs_one_col, menu, chat_on_login, mailbox_closed, secret;
     bool menu_always;       /* メニュー方式で毎回メニューを出す */
+    /* チャットの設定 (.X): ESC で色を付ける / 入力をエコーしない / 自分の発言も表示する / 発言者を ID で出す
+       (古いデータに列を足したとき 0 になるので、0 が普通の動きになる向きにしてある) */
+    bool chat_esc, chat_noecho, chat_self, chat_byid;
+    int lcall;              /* LCSET: 0 なし / 1 次のシステムダウンまで / 2 解除するまで */
 };
 
 enum board_type { BT_BOARD = 'B', BT_MAIL = 'M', BT_PROGRAM = 'P' };
@@ -116,7 +120,46 @@ struct system {
     long total_logins, guest_logins;
     time_t started;
     char sysmes[10][1024];  /* MESEDIT のメッセージ 0〜9 */
+    /* LINESET: 回線ごとのアクセスできるレベルと時間のモード */
+    struct { int level, mode; } lines[MAX_LINES + 1];
+    /* CTIME: 時間で制限する回線と、曜日 × 時の禁止表 (1 = 禁止) */
+    bool chat_limited[MAX_LINES + 1];
+    unsigned char ctime_tab[7][24];
+    bool busy_line[MAX_LINES + 1];  /* LBUSY: BUSY 時間を数える回線 */
+    int chat_call_level;            /* CMODE: チャットコールを受けるレベル (255 = OFF) */
+    /* IMODE: 新しい ID の初期モード */
+    bool imode_menu, imode_menu_always, imode_chat_esc, imode_chat_noecho, imode_chat_self, imode_chat_byid;
+    bool keylock;
+    long busy_sec;                  /* 本日の BUSY 時間 (秒) */
+    int busy_day;
+    time_t down_at;                 /* SDTIME: システムを止める時刻 (0 は無し。保存しない) */
 };
+
+enum { LM_NORMAL = 0, LM_NOTIMEOUT = 1, LM_ALWAYS = 2 };
+
+/* スケジュール (SCSET) */
+enum { SK_DATE = 0, SK_DAILY = 1, SK_WEEKDAY = 2 };
+struct sched {
+    int no;
+    bool spot;              /* false: 期間型 (オープニングに出す)、true: スポット型 (その時刻に全回線へ) */
+    char start[12], end[12];/* 期間型: YYYY-MM-DD */
+    int kind;               /* スポット型: SK_DATE / SK_DAILY / SK_WEEKDAY */
+    char date[12];
+    int wday;
+    char hhmm[8];
+    bool down;              /* システムダウンする */
+    int timer_wday;
+    char timer_hhmm[8];
+    char msg[200];
+};
+
+struct sched *sched_list(int *n);
+int sched_add(const struct sched *s);
+void sched_del(int index);
+
+/* 全部のログ (古い順)。統計 (ACCESS) 用 */
+int log_all(struct logent *out, int max);
+void log_remove_user(int id);
 
 extern struct user *g_users;      /* [MAX_USERS] */
 extern int g_nusers;              /* 使った最大の ID + 1 */
@@ -145,6 +188,7 @@ char *cug_right(int user, int board);           /* CUG 権 a/r/w/n */
 bool board_can_read(const struct user *u, const struct board *b);
 bool board_can_write(const struct user *u, const struct board *b);
 struct board *board_by_index(const char *idx);
+bool time_forbidden(void);
 
 struct msg *msg_get(int board, int seq);
 int msg_add(struct msg *m, const char *body);   /* 番号を振って追加。seq を返す */
