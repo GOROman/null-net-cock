@@ -3,6 +3,8 @@
 bbs_name = "NULL-NET"          # 起動時のログに出す名前
 net_id = TEST                  # ネットワーク ID (英字 4 文字。初回起動時だけ使う。あとは SYSSET で変更)
 listen = 0.0.0.0:6868          # TCP の待ち受け
+#ws_listen = 127.0.0.1:6869    # WebSocket の待ち受け (null-modem などから。Cloudflare Tunnel の中継を想定)
+#ws_code = utf8                # WebSocket の回線の文字コード
 data_dir = data                # データ (net-cock.db / system.log) の置き場所
 max_lines = 16                 # 回線数 (最大 128)
 idle_timeout = 300             # 無操作で切断するまでの秒数 (0 で無効)

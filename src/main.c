@@ -18,9 +18,9 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-static int listen_tcp(const char *spec) {
+int listen_tcp(const char *spec, int default_port) {
     char host[64] = "0.0.0.0";
-    int port = 6868;
+    int port = default_port;
     const char *colon = strrchr(spec, ':');
     if (colon) {
         snprintf(host, sizeof host, "%.*s", (int)(colon - spec), spec);
@@ -118,7 +118,7 @@ int main(int argc, char **argv) {
         db_save_sys();
     }
 
-    int ls = listen_tcp(g_cfg.listen);
+    int ls = listen_tcp(g_cfg.listen, 6868);
     if (ls < 0) {
         fprintf(stderr, "%s で待ち受けできません: %s\n", g_cfg.listen, strerror(errno));
         return 1;
@@ -126,6 +126,7 @@ int main(int argc, char **argv) {
     nc_log("%s (null-net-cock %s) を起動しました。TCP %s / 最大 %d 回線", g_cfg.bbs_name, NC_VERSION,
            g_cfg.listen, g_cfg.max_lines);
     modem_start();
+    ws_start();
     monitor_start();
     console_start();
 

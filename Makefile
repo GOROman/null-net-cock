@@ -20,6 +20,7 @@ test: null-net-cock
 	python3 tests/host.py ./null-net-cock
 	python3 tests/console.py ./null-net-cock
 	python3 tests/help.py ./null-net-cock
+	python3 tests/ws.py ./null-net-cock
 
 clean:
 	rm -rf build null-net-cock

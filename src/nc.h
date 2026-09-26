@@ -47,6 +47,8 @@ struct config {
     char net_id[16];        /* ネットワーク ID (例: COCK) */
     char data_dir[512];
     char listen[128];       /* TCP の待ち受け (例: 0.0.0.0:6868) */
+    char ws_listen[128];    /* WebSocket の待ち受け (空なら使わない。例: 127.0.0.1:6869) */
+    char ws_code[8];        /* WebSocket の回線の文字コード (既定 utf8) */
     int max_lines;
     int idle_timeout;       /* 無操作で切断するまでの秒数 */
     int session_minutes;    /* 1 回の接続の上限 (分) */
@@ -207,5 +209,9 @@ void monitor_start(void);
 /* ------------------------------------------------------------ ホストコンソール */
 
 void console_start(void);
+
+/* ------------------------------------------------------------ WebSocket */
+
+void ws_start(void);
 
 #endif

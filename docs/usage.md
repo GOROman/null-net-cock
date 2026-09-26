@@ -9,6 +9,8 @@
 | `bbs_name` | ログに出す名前 | `NULL-NET` |
 | `net_id` | ネットワーク ID (初回起動時だけ使う) | `TEST` |
 | `listen` | TCP の待ち受け | `0.0.0.0:6868` |
+| `ws_listen` | WebSocket の待ち受け (下の「WebSocket 回線」) | なし (使わない) |
+| `ws_code` | WebSocket の回線の文字コード | `utf8` |
 | `data_dir` | データの置き場所 | `data` |
 | `max_lines` | 回線数 (最大 128) | `16` |
 | `idle_timeout` | 無操作で切断するまでの秒数 | `300` |
@@ -40,6 +42,22 @@ modem1.code = sjis
 - モデムの取りこぼしを避けるため、OK の後は 200ms (ATZ / AT&F の後は 1 秒)、RING の後は 300ms 待ってから次を送ります。ATA の後にまた RING が来たら ATA を送り直します
 - モデムに割り当てた回線番号は TCP の接続には使いません
 - AT コマンドのやり取りはシステムログ (`data/system.log`) に残ります
+
+## WebSocket 回線
+
+ブラウザのソフトウェアモデム [null-modem](https://github.com/GOROman/null-modem) などから WebSocket でつなげます。`ws_listen` に待ち受けを書き、Cloudflare Tunnel などで `wss://` として公開します。
+
+```
+ws_listen = 127.0.0.1:6869
+```
+
+```sh
+cloudflared tunnel --url http://localhost:6869
+```
+
+- telnet の処理はせず、受け取ったバイトをそのまま回線の入力にします (XMODEM / YMODEM も通ります)
+- LOG の速度は `WS`。接続元は中継が付けた `CF-Connecting-IP` (無ければ `X-Forwarded-For`) を使います
+- 回線番号は TCP と同じところから取ります
 
 ## ログイン
 
