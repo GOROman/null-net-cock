@@ -31,7 +31,7 @@ static bool chat_allowed(int no) {
 int cmd_llist(struct sess *s, const char *arg) {
     CHK(outm_nl(s, 148));
     CHK(outm_nl(s, 149));
-    for (int i = 1; i <= g_cfg.max_lines; i++) {
+    for (int i = g_online[0].used ? 0 : 1; i <= g_cfg.max_lines; i++) {
         char line[256];
         pthread_mutex_lock(&g_lock);
         struct online *o = &g_online[i], *me = &g_online[s->no];

@@ -477,6 +477,8 @@ void session_run(struct conn_arg *ca) {
     term_init(&t, ca->fd, ca->no, g_online[ca->no].notify_rd, ca->code[0] ? ca->code : g_cfg.default_code,
               !ca->serial);
     t.carrier = ca->carrier;
+    if (ca->out_fd) t.out_fd = ca->out_fd;
+    t.no_idle = ca->host;
     nc_log("CH%02d: 接続 %s", ca->no, ca->peer);
 
     int r = login(&s);

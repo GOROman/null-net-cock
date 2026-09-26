@@ -18,6 +18,8 @@ struct config g_cfg = {
     .session_minutes = 60,
     .guest_minutes = 15,
     .default_code = "sjis",
+    .host_access = "cock",
+    .console = true,
 };
 
 pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -83,7 +85,8 @@ int config_load(const char *path) {
         }
 #define STR(name) if (!strcmp(key, #name)) snprintf(g_cfg.name, sizeof g_cfg.name, "%s", val);
 #define INT(name) if (!strcmp(key, #name)) g_cfg.name = atoi(val);
-        STR(bbs_name) STR(net_id) STR(data_dir) STR(listen) STR(default_code) STR(mes_file) STR(sysmes_file) STR(mes_esc_file)
+        STR(bbs_name) STR(net_id) STR(data_dir) STR(listen) STR(default_code) STR(mes_file) STR(sysmes_file) STR(mes_esc_file) STR(host_access)
+        if (!strcmp(key, "console")) g_cfg.console = !strcmp(val, "on") || !strcmp(val, "1") || !strcmp(val, "yes");
         INT(max_lines) INT(idle_timeout) INT(session_minutes) INT(guest_minutes)
 #undef STR
 #undef INT

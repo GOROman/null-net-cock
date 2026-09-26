@@ -18,6 +18,7 @@ test: null-net-cock
 	python3 tests/sysop.py ./null-net-cock
 	python3 tests/member.py ./null-net-cock
 	python3 tests/host.py ./null-net-cock
+	python3 tests/console.py ./null-net-cock
 
 clean:
 	rm -rf build null-net-cock

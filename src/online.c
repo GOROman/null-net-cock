@@ -28,27 +28,41 @@ int online_alloc(const char *peer) {
             break;
         }
     }
-    no = claim(no, peer);
+    if (no) claim(no, peer);
     pthread_mutex_unlock(&g_lock);
     return no;
 }
 
-int online_alloc_at(int no, const char *peer) {
+bool online_alloc_at(int no, const char *peer) {
     pthread_mutex_lock(&g_lock);
-    no = no >= 1 && no <= MAX_LINES && !g_online[no].used ? claim(no, peer) : 0;
+    bool ok = no >= 0 && no <= MAX_LINES && !g_online[no].used;
+    if (ok) claim(no, peer);
     pthread_mutex_unlock(&g_lock);
-    return no;
+    return ok;
+}
+
+void online_inject(int no, const char *utf8) {
+    pthread_mutex_lock(&g_lock);
+    struct online *o = &g_online[no];
+    size_t n = strlen(utf8);
+    if (o->used && o->inject_len + (int)n < (int)sizeof o->inject) {
+        memcpy(o->inject + o->inject_len, utf8, n);
+        o->inject_len += (int)n;
+        if (o->notify_wr >= 0) (void)!write(o->notify_wr, "!", 1);
+    }
+    pthread_mutex_unlock(&g_lock);
 }
 
 /* g_lock を持って呼ぶ */
 static int claim(int no, const char *peer) {
-    if (no) {
+    {
         struct online *o = &g_online[no];
         memset(o, 0, sizeof *o);
         o->used = true;
         o->no = no;
         o->since = time(NULL);
         o->uid = -1;
+        o->monitor_fd = -1;
         snprintf(o->peer, sizeof o->peer, "%s", peer);
         int p[2];
         if (pipe(p) == 0) {

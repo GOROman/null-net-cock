@@ -121,6 +121,7 @@ int main(int argc, char **argv) {
            g_cfg.listen, g_cfg.max_lines);
     modem_start();
     monitor_start();
+    console_start();
 
     for (;;) {
         struct sockaddr_in peer;

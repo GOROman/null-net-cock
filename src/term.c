@@ -46,10 +46,47 @@ void term_free(struct term *t) {
     if (t->from_term != (iconv_t)-1) iconv_close(t->from_term);
 }
 
+/* ホストコンソールの監視: 私的なコマンド (メール・会員データ) の最中と転送中は見せない */
+static bool private_place(const char *p) {
+    static const char *const names[] = {"MREAD", "MWRITE", "MCHECK", "UREAD", "UWRITE", "UDLIST", "UDEDIT", "UPASS",
+                                        "MCHANGE", "MAKEID", "GULV", "PASS", "JOIN", "MODE", "MBSET"};
+    for (size_t i = 0; i < sizeof names / sizeof names[0]; i++)
+        if (!strcmp(p, names[i])) return true;
+    return false;
+}
+
+static void monitor_copy(struct term *t, const unsigned char *p, size_t len) {
+    int fd = g_online[t->no].monitor_fd;
+    if (fd < 0 || t->binary || !len || p[0] == IAC) return;
+    char place[64];
+    pthread_mutex_lock(&g_lock);
+    snprintf(place, sizeof place, "%s", g_online[t->no].place);
+    pthread_mutex_unlock(&g_lock);
+    if (private_place(place)) return;
+    if (t->code == CODE_UTF8) {
+        (void)!write(fd, p, len);
+        return;
+    }
+    /* Shift_JIS の回線は UTF-8 にして見せる */
+    char out[8192];
+    char *ip = (char *)p, *op = out;
+    size_t il = len, ol = sizeof out;
+    iconv_t cd = iconv_open("UTF-8", "CP932");
+    if (cd == (iconv_t)-1) return;
+    while (il > 0 && ol > 0)
+        if (iconv(cd, &ip, &il, &op, &ol) == (size_t)-1) {
+            if (errno != EILSEQ && errno != EINVAL) break;
+            ip++, il--;
+        }
+    iconv_close(cd);
+    (void)!write(fd, out, (size_t)(op - out));
+}
+
 int term_write_raw(struct term *t, const void *buf, size_t len) {
     const unsigned char *p = buf;
+    monitor_copy(t, p, len);
     while (len > 0 && !t->closed) {
-        ssize_t n = write(t->fd, p, len);
+        ssize_t n = write(t->out_fd ? t->out_fd : t->fd, p, len);
         if (n < 0) {
             if (errno == EINTR) continue;
             t->closed = true;
@@ -191,7 +228,7 @@ static int wait_input(struct term *t) {
     for (;;) {
         time_t now = time(NULL);
         int idle = g_cfg.idle_timeout - (int)(now - t->last_input);
-        if (g_cfg.idle_timeout > 0 && idle <= 0) return T_TIMEOUT;
+        if (g_cfg.idle_timeout > 0 && idle <= 0 && !t->no_idle) return T_TIMEOUT;
         if (t->deadline && now >= t->deadline) return T_TIMEUP;
         if (t->deadline && !t->warned && t->deadline - now <= 60) {
             t->warned = t->warn_pending = true;
@@ -209,7 +246,30 @@ static int wait_input(struct term *t) {
         if (pf[1].revents & POLLIN) {
             char c;
             (void)read(t->notify_rd, &c, 1);
-            return 2;
+            /* ホストコンソールから差し込まれた入力 */
+            char in[512];
+            int n = 0;
+            pthread_mutex_lock(&g_lock);
+            struct online *o = &g_online[t->no];
+            if (o->inject_len) {
+                n = o->inject_len;
+                memcpy(in, o->inject, (size_t)n);
+                o->inject_len = 0;
+            }
+            pthread_mutex_unlock(&g_lock);
+            if (!n) return 2;
+            char conv[1024];
+            char *ip = in, *op = conv;
+            size_t il = (size_t)n, ol = sizeof conv;
+            iconv(t->to_term, NULL, NULL, NULL, NULL);
+            iconv(t->to_term, &ip, &il, &op, &ol);
+            size_t cl = (size_t)(op - conv);
+            if (t->in_len + cl <= sizeof t->in) {
+                memcpy(t->in + t->in_len, conv, cl);
+                t->in_len += cl;
+            }
+            t->last_input = time(NULL);
+            return 1;
         }
         if (pf[0].revents & (POLLIN | POLLHUP | POLLERR)) {
             unsigned char buf[1024];

@@ -55,6 +55,8 @@ struct config {
     char mes_file[512];     /* NET-COCK の MES.TXT (指定すると元と同じ文言になる) */
     char sysmes_file[512];  /* NET-COCK の SYS_MES.DAT */
     char mes_esc_file[512]; /* NET-COCK の MES_ESC.TXT (ESC を使う会員に出す) */
+    char host_access[32];   /* ホストコンソールでログインするときに打つ文字列 */
+    bool console;           /* ホストコンソールを使う (標準入力が端末のとき) */
     struct modem_cfg modems[MAX_MODEMS];
     int nmodems;
 };
@@ -90,6 +92,8 @@ struct term {
     bool warned;            /* 持ち時間の予告を出した */
     bool warn_pending;
     bool bs_one_col;        /* BS 1 個で 1 桁戻る端末 (全角 1 文字を消すのに BS を 2 個送る) */
+    int out_fd;             /* 出力先 (ホストコンソールは入力と別。ふつうは fd と同じ) */
+    bool no_idle;           /* 無操作で切らない (ホストコンソール) */
 };
 
 enum read_flags { RL_MASK = 1, RL_UPPER = 2, RL_RAW = 4, RL_NOECHO = 8 };
@@ -138,6 +142,9 @@ struct online {
     int uid;                /* ログイン中の ID (-1 はまだ) */
     unsigned char chat_to[MAX_LINES + 1]; /* 相手の回線ごとのチャットの状態: 0 on / 1 off / 2 受信だけ */
     bool local[MAX_LINES + 1];            /* .U で登録したローカル送出先 */
+    int monitor_fd;         /* ホストコンソールで監視しているときの出力先 (-1 は無し) */
+    char inject[512];       /* ホストコンソールから代わりに入力した文字 (UTF-8) */
+    int inject_len;
     bool secret;            /* 極秘モード (LLIST に出さない) */
     int notify_wr;
     int notify_rd;
@@ -149,7 +156,8 @@ struct online {
 extern struct online g_online[MAX_LINES + 1];
 
 int online_alloc(const char *peer);          /* TCP 用に空き回線を取る (モデムの回線は除く) */
-int online_alloc_at(int no, const char *peer); /* 決まった回線 (モデム) を取る */
+bool online_alloc_at(int no, const char *peer); /* 決まった回線 (モデム、0 はホスト) を取る */
+void online_inject(int no, const char *utf8);  /* その回線に入力を差し込む */
 void online_free(int no);
 void online_set_user(int no, const char *id, const char *handle);
 void online_set_place(int no, const char *place);
@@ -180,6 +188,8 @@ struct conn_arg {
     bool serial;
     int carrier;
     char code[8];
+    int out_fd;             /* 0 なら fd と同じ */
+    bool host;              /* ホストコンソール (0 回線) */
 };
 
 void *session_thread(void *arg);   /* TCP: セッションが終わったら切断して回線を返す */
@@ -192,5 +202,9 @@ void modem_start(void);
 /* ------------------------------------------------------------ 監視 (時間・スケジュール・SDTIME) */
 
 void monitor_start(void);
+
+/* ------------------------------------------------------------ ホストコンソール */
+
+void console_start(void);
 
 #endif
