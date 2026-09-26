@@ -2,6 +2,7 @@
  * null-net-cock: 起動と TCP の待ち受け
  */
 #include "db.h"
+#include "help.h"
 #include "msg.h"
 #include "nc.h"
 
@@ -90,6 +91,11 @@ int main(int argc, char **argv) {
         int n = msg_load(g_cfg.mes_file);
         if (n < 0) fprintf(stderr, "%s を読めません。内蔵の文言を使います\n", g_cfg.mes_file);
         else nc_log("%s から %d 件の文言を読み込みました", g_cfg.mes_file, n);
+    }
+    if (g_cfg.help_file[0]) {
+        int n = help_load(g_cfg.help_file);
+        if (n < 0) fprintf(stderr, "%s を読めません\n", g_cfg.help_file);
+        else nc_log("%s から %d 個のブロックを読み込みました", g_cfg.help_file, n);
     }
     if (g_cfg.mes_esc_file[0]) {
         int n = msg_load_esc(g_cfg.mes_esc_file);

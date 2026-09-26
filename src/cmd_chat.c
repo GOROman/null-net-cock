@@ -4,6 +4,7 @@
  * 回線 i から j に届くのは、j がチャットを受け付けていて (CON)、i の j に対する状態が on、
  * j の i に対する状態が off でない (on か 受信だけ) とき。
  */
+#include "help.h"
 #include "session.h"
 
 #include <ctype.h>
@@ -124,11 +125,7 @@ static void parse_lines(const char *p, bool *set) {
         for (int i = 1; i <= MAX_LINES; i++) set[i] = true;
 }
 
-static int chat_help(struct sess *s) {
-    return out(s, ".S[回線] 送受信 ON / .O[回線] OFF / .R[回線] 受信だけ / .C シスオペを呼ぶ / .T 右寄せ / .B 中央寄せ\n"
-                  ".X 設定 / .Pn 回線 n だけに送る / .U回線 ローカル送出先 / .A ローカルだけに送る / .L 回線一覧 / "
-                  ".Q 抜ける\n");
-}
+static int chat_help(struct sess *s) { return help_show(s, HB_CHAT_HELP, &(struct help_ctx){.s = s, .board = -1}); }
 
 /* 80 桁基準で右寄せ (right) か中央寄せにする */
 static void align(const char *text, char *buf, size_t sz, bool right) {

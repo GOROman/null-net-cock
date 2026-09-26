@@ -1,6 +1,7 @@
 /*
  * セッション: ログイン、コマンドの受け付け、共通の入出力部品
  */
+#include "help.h"
 #include "session.h"
 
 #include <ctype.h>
@@ -261,32 +262,24 @@ static int login(struct sess *s) {
     return T_DISCONNECT;
 }
 
-/* ログイン後の表示 */
+/* ログイン後の表示 (HELP のオープニングのブロック) */
 static int opening(struct sess *s) {
-    struct user *u = USER(s);
-    CHK(out(s, "\n%s\n", g_sys.sysmes[1]));
-    if (IS_GUEST(s)) {
-        CHK(out(s, "%s\n%s\n", g_sys.sysmes[3], g_sys.sysmes[5]));
-        return 0;
+    char mail[256] = "", sched[2048] = "";
+    if (!IS_GUEST(s)) {
+        mail_notice_text(s, mail, sizeof mail);
+        sched_opening_text(sched, sizeof sched);
     }
-    CHK(out(s, "%s\n", g_sys.sysmes[2]));
-    char prev[32] = "-";
-    if (u->prev_login) fmt_time(u->prev_login, prev, sizeof prev);
-    CHK(out(s, "\n%04d:%s  前回 %s  %d 回目\n", u->id, u->logname, prev, u->logins));
-    if (u->pass_miss > 0) {
-        CHK(out(s, "パスワードの入力ミスが %d 回ありました。\n", u->pass_miss));
-        pthread_mutex_lock(&g_lock);
-        u->pass_miss = 0;
-        db_save_users();
-        pthread_mutex_unlock(&g_lock);
-    }
-    CHK(login_mail_notice(s));
-    CHK(sched_opening(s));
+    struct help_ctx hc = {.s = s, .board = -1, .speed = s->speed, .login_at = s->login_at, .mail_notice = mail,
+                          .sched = sched};
+    CHK(out(s, "\n"));
+    CHK(help_show(s, IS_GUEST(s) ? HB_GUEST_OPEN : HB_USER_OPEN, &hc));
+    if (IS_GUEST(s)) return 0;
     pthread_mutex_lock(&g_lock);
-    bool chat = g_online[s->no].chat;
+    bool miss = USER(s)->pass_miss > 0;
+    USER(s)->pass_miss = 0;
+    if (miss) db_save_users();
     int nmsgs = g_nmsgs;
     pthread_mutex_unlock(&g_lock);
-    CHK(outm_nl(s, chat ? 151 : 150));
     /* タイトルが多くなったら SYSOP にファイルメンテナンスを促す */
     if (IS_SYSOP(s) && nmsgs > 3500) CHK(outm_nl(s, 360));
     return 0;
@@ -540,10 +533,7 @@ void session_run(struct conn_arg *ca) {
             if (r >= 0) r = command_loop(&s);
         }
         if (r == T_TIMEUP) outm_nl(&s, 129);
-        else if (r >= 0) {
-            long used = (long)(time(NULL) - s.login_at);
-            out(&s, "%s\n%02ld:%02ld:%02ld\n", g_sys.sysmes[4], used / 3600, used / 60 % 60, used % 60);
-        }
+        else if (r >= 0) help_show(&s, HB_LOGOUT, &(struct help_ctx){.s = &s, .board = -1, .login_at = s.login_at});
         account_logout(&s, time(NULL));
         notify_others(&s, 161);
         nc_log("CH%02d: %04d %s がログアウト", s.no, u->id, u->logname);

@@ -1,6 +1,7 @@
 /*
  * 利用者・チャット・入会・SYSOP 向けのコマンド
  */
+#include "help.h"
 #include "session.h"
 
 #include <ctype.h>
@@ -139,6 +140,7 @@ int signup_auto(struct sess *s, bool ask_first) {
         int r = yn(s, 349);
         if (r <= 0) return r;
     }
+    CHK(help_show(s, HB_AUTO_SIGNUP, &(struct help_ctx){.s = s, .board = -1}));
     struct application a = {0};
     int r = application_input(s, &a);
     if (r <= 0) return r;
@@ -157,6 +159,7 @@ int signup_auto(struct sess *s, bool ask_first) {
 int cmd_join(struct sess *s, const char *arg) {
     if (g_sys.signup == SIGNUP_OFFLINE) return outm_nl(s, 348);
     if (g_sys.signup == SIGNUP_AUTO) return signup_auto(s, false);
+    CHK(help_show(s, HB_MANUAL_SIGNUP, &(struct help_ctx){.s = s, .board = -1}));
     struct application a = {0};
     int r = application_input(s, &a);
     if (r <= 0) return r;
@@ -216,23 +219,14 @@ int cmd_newmem(struct sess *s, const char *arg) {
 }
 
 int show_user(struct sess *s, const struct user *src) {
+    CHK(help_show(s, HB_UREAD, &(struct help_ctx){.s = s, .board = -1, .target = src}));
+    if (!IS_MANAGER(s)) return 0;
     struct user u;
     pthread_mutex_lock(&g_lock);
     u = *src;
     pthread_mutex_unlock(&g_lock);
-    char issued[32] = "-", last[32] = "-";
-    if (u.issued) fmt_time(u.issued, issued, sizeof issued);
-    if (u.last_login) fmt_time(u.last_login, last, sizeof last);
-    CHK(out(s, "ID        : %s%04d  %s\n", g_sys.net_id, u.id, level_name(u.level)));
-    CHK(out(s, "ログネーム: %s\n性別      : %s\n住所      : %s\n職業      : %s\n機種      : %s\n", u.logname,
-            !strcmp(u.sex, "M") ? "男" : !strcmp(u.sex, "F") ? "女" : "-", u.addr_pub, u.job, u.machine));
-    CHK(out(s, "自己紹介  : %s\n発行      : %s\n最終ログイン: %s\n総使用時間: %ld 分  ログイン %d 回\n"
-               "書き込み  : ボード %d / メール %d / プログラム %d\n",
-            u.intro, issued, last, u.total_sec / 60, u.logins, u.wb, u.wm, u.wp));
-    if (IS_MANAGER(s))
-        CHK(out(s, "[SYSOP] 氏名 %s (%s)  〒%s %s  TEL %s  生年月日 %s  レベル %d  持ち時間 %d 分\n", u.name, u.kana,
-                u.zip, u.addr_priv, u.tel, u.birth, u.level, u.day_minutes));
-    return 0;
+    return out(s, "[会員管理者] 氏名 %s (%s)  〒%s %s  TEL %s  生年月日 %s  レベル %d  持ち時間 %d 分\n", u.name,
+               u.kana, u.zip, u.addr_priv, u.tel, u.birth, u.level, u.day_minutes);
 }
 
 /* 空 Enter まで繰り返す */
@@ -296,19 +290,7 @@ int cmd_pass(struct sess *s, const char *arg) {
 }
 
 int cmd_ustat(struct sess *s, const char *arg) {
-    struct user u;
-    pthread_mutex_lock(&g_lock);
-    u = *USER(s);
-    pthread_mutex_unlock(&g_lock);
-    long now_used = (long)(time(NULL) - s->login_at);
-    return out(s,
-               "ログイン回数   : %d (今月 %d / 先月 %d)\n"
-               "利用時間       : 合計 %ld 分 / 今月 %ld 分 / 先月 %ld 分\n"
-               "今回の接続     : %ld 分\n"
-               "本日の持ち時間 : %d 分 (1 日 %d 分)\n"
-               "書き込み       : ボード %d / メール %d\n",
-               u.logins, u.logins_month, u.logins_prev, (u.total_sec + now_used) / 60, (u.month_sec + now_used) / 60,
-               u.prev_month_sec / 60, now_used / 60, u.today_left, u.day_minutes, u.wb, u.wm);
+    return help_show(s, HB_USTAT, &(struct help_ctx){.s = s, .board = -1, .speed = s->speed, .login_at = s->login_at});
 }
 
 int cmd_log(struct sess *s, const char *arg) {

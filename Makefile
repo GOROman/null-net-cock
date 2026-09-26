@@ -7,7 +7,7 @@ OBJ = $(SRC:src/%.c=build/%.o)
 null-net-cock: $(OBJ)
 	$(CC) $(CFLAGS) -o $@ $(OBJ) $(LDLIBS)
 
-build/%.o: src/%.c src/nc.h src/db.h src/msg.h src/session.h src/xfer.h
+build/%.o: src/%.c src/nc.h src/db.h src/msg.h src/session.h src/xfer.h src/help.h
 	@mkdir -p build
 	$(CC) $(CFLAGS) -c -o $@ $<
 
@@ -19,6 +19,7 @@ test: null-net-cock
 	python3 tests/member.py ./null-net-cock
 	python3 tests/host.py ./null-net-cock
 	python3 tests/console.py ./null-net-cock
+	python3 tests/help.py ./null-net-cock
 
 clean:
 	rm -rf build null-net-cock

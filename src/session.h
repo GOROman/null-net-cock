@@ -75,6 +75,7 @@ int cmd_bchange(struct sess *s, const char *arg);
 enum { RB_NORMAL, RB_RALL, RB_NONSTOP };
 int read_board(struct sess *s, int board, int mode);
 int login_mail_notice(struct sess *s);
+void mail_notice_text(struct sess *s, char *buf, size_t sz);
 void print_board_list(struct sess *s, bool for_write);
 
 /* 利用者・チャット・入会・SYSOP (cmd_misc.c) */
@@ -130,6 +131,7 @@ int cmd_sdtime(struct sess *s, const char *arg);
 int cmd_scset(struct sess *s, const char *arg);
 int cmd_sclist(struct sess *s, const char *arg);
 int sched_opening(struct sess *s);
+void sched_opening_text(char *buf, size_t sz);
 
 /* チャット (cmd_chat.c) */
 int cmd_cmode(struct sess *s, const char *arg);

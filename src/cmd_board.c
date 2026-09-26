@@ -4,6 +4,7 @@
  * ボードを読むときは「今のメッセージ」(cur) のヘッダを出してサブコマンドを待つ。R (Enter) で本文を読み、
  * 次のメッセージへ進む。
  */
+#include "help.h"
 #include "session.h"
 #include "xfer.h"
 
@@ -108,40 +109,31 @@ static int show_header(struct sess *s, int board, int seq) {
         pthread_mutex_unlock(&g_lock);
         return 0;
     }
-    struct msg c = *m;
-    struct board *b = &g_boards[board];
-    char idx[16], from[64], re[256] = "", to[256] = "";
-    snprintf(idx, sizeof idx, "%s", b->index);
-    snprintf(from, sizeof from, "%s", name_of(c.from));
     int last = 0;
     for (int i = 0; i < g_nmsgs; i++)
         if (visible(s, &g_msgs[i], board) && g_msgs[i].seq > last) last = g_msgs[i].seq;
-    if (c.reply_to) {
-        struct msg *p = msg_get(board, c.reply_to);
-        if (p) snprintf(re, sizeof re, "[re:%d %s/%04d:%s]\n", p->seq, p->title, p->from, name_of(p->from));
-        else snprintf(re, sizeof re, "[re:%d]\n", c.reply_to);
-    }
+    struct help_ctx hc = {.s = s, .board = board, .m = m, .ptr = seq, .total = last, .speed = s->speed};
+    char *head = help_expand(HB_HEADER, &hc);
+    char *re = m->reply_to ? help_expand(HB_REPLY, &hc) : strdup("");
+    char to[256] = "";
     if (board == MAIL_BOARD)
         for (int k = 0; k < MAX_MAIL_TO; k++)
-            if (c.to[k]) {
+            if (m->to[k]) {
                 size_t l = strlen(to);
-                snprintf(to + l, sizeof to - l, "%s%04d:%s", l ? " " : "  to ", c.to[k], name_of(c.to[k]));
+                snprintf(to + l, sizeof to - l, "%s%04d:%s", l ? " " : "  to ", m->to[k], name_of(m->to[k]));
             }
-    bool prog = b->type == BT_PROGRAM && c.fid;
     pthread_mutex_unlock(&g_lock);
-
-    char ts[32];
-    fmt_time(c.t, ts, sizeof ts);
-    if (board == MAIL_BOARD) CHK(out(s, "\nmail %s %s\n%s", ts, c.title, re));
-    else CHK(out(s, "\n%s(%d/%d) %s %s\n%s", idx, c.seq, last, ts, c.title, re));
-    if (prog) {
-        char fn[16];
-        fname_83(c.fname, fn, sizeof fn);
-        CHK(out(s, "  [%s] %ldKB %04d:%s", fn, (c.fsize + 1023) / 1024, c.from, from));
-    } else CHK(out(s, "  %ldbytes %04d:%s", c.len, c.from, from));
-    if (c.replies) CHK(out(s, "  %dreply", c.replies));
-    if (to[0]) CHK(out(s, "%s", to));
-    return out(s, " ");
+    /* リプライ先はヘッダの 1 行目の後ろに入れる */
+    char *nl = strchr(head, '\n');
+    int r;
+    if (nl && re[0]) {
+        *nl = 0;
+        r = out(s, "\n%s\n%s%s%s ", head, re, nl + 1, to);
+    } else if (re[0]) r = out(s, "\n%s\n%s%s ", head, re, to);
+    else r = out(s, "\n%s%s ", head, to);
+    free(head);
+    free(re);
+    return r;
 }
 
 /* 本文を出して、既読にする */
@@ -387,7 +379,7 @@ static int write_msg(struct sess *s, int board, int reply_to, const int *to) {
             CHK(outm_nl(s, 189));
             return 0;
         default:
-            if ((r = out(s, "Y:書き込む N:捨てる T:タイトルを変える E:本文を入れ直す C:表示 Q:書きかけで抜ける\n")) < 0)
+            if ((r = help_show(s, HB_WRITE_HELP, &(struct help_ctx){.s = s, .board = -1})) < 0)
                 goto fail;
         }
     }
@@ -540,7 +532,7 @@ int cmd_batch(struct sess *s, const char *arg) {
             break;
         }
         default:
-            CHK(out(s, "Y:転送する O:転送して回線を切る N:抜ける D:リストから外す L:一覧 C:リストを空にする\n"));
+            CHK(help_show(s, HB_BATCH_HELP, &(struct help_ctx){.s = s, .board = -1}));
         }
     }
 }
@@ -638,12 +630,7 @@ static int delete_msg(struct sess *s, int board, int seq) {
     return outm_nl(s, 204);
 }
 
-static int read_help(struct sess *s) {
-    return out(s, "R/Enter:読む V:最新まで続けて読む A/L:タイトル 20 件 (名前/ID) N/B:次/前 T/E:最初/最新\n"
-                  "P:これにリプライ F:直前に読んだものにリプライ W:書く D:削除 M:回数 O:ボードオペ\n"
-                  "U:リプライ先へ I:元の位置へ X/Y:XMODEM/YMODEM で受け取る S:バッチに登録 !:編集 番号:その番号 "
-                  "Q:終わる\n");
-}
+static int read_help(struct sess *s) { return help_show(s, HB_READ_HELP, &(struct help_ctx){.s = s, .board = -1}); }
 
 /* 返信を書く (メールは送り主へ) */
 static int reply(struct sess *s, int board, int seq);
@@ -654,7 +641,10 @@ int read_board(struct sess *s, int board, int mode) {
     struct board *b = &g_boards[board];
     int n = board == MAIL_BOARD ? 0 : board_count(board);
     char head[256], place[16];
-    snprintf(head, sizeof head, "\n-\t-\t-\t-\t-\t-\t-\t-\t-\t-\nNo.%d ｢%s｣\n", board, b->title);
+    struct help_ctx hc = {.s = s, .board = board};
+    char *h = help_expand(HB_BOARD, &hc);
+    snprintf(head, sizeof head, "\n%s", h);
+    free(h);
     snprintf(place, sizeof place, "%s", b->index);
     bool prog = b->type == BT_PROGRAM;
     pthread_mutex_unlock(&g_lock);
@@ -981,7 +971,8 @@ int cmd_pmove(struct sess *s, const char *arg) {
 
 /* ------------------------------------------------------------ メール */
 
-int login_mail_notice(struct sess *s) {
+/* 新着メールの案内 (オープニングの /> で出す) */
+void mail_notice_text(struct sess *s, char *buf, size_t sz) {
     int n = 0, slot;
     pthread_mutex_lock(&g_lock);
     for (int i = 0; i < g_nmsgs; i++) {
@@ -989,8 +980,14 @@ int login_mail_notice(struct sess *s) {
         if (m->board == MAIL_BOARD && !m->deleted && mail_is_for(m, s->uid, &slot) && m->to_state[slot] == 'n') n++;
     }
     pthread_mutex_unlock(&g_lock);
-    if (!n) return 0;
-    return out(s, "%smail%s%d%s\n", M(239), M(240), n, M(241));
+    buf[0] = 0;
+    if (n) snprintf(buf, sz, "%smail%s%d%s\n", M(239), M(240), n, M(241));
+}
+
+int login_mail_notice(struct sess *s) {
+    char buf[256];
+    mail_notice_text(s, buf, sizeof buf);
+    return buf[0] ? out(s, "%s", buf) : 0;
 }
 
 /* 宛先を聞いてメールを書く。reply_from があればその人に返信 */

@@ -55,6 +55,7 @@ struct config {
     char mes_file[512];     /* NET-COCK の MES.TXT (指定すると元と同じ文言になる) */
     char sysmes_file[512];  /* NET-COCK の SYS_MES.DAT */
     char mes_esc_file[512]; /* NET-COCK の MES_ESC.TXT (ESC を使う会員に出す) */
+    char help_file[512];    /* NET-COCK の HELP.TXT */
     char host_access[32];   /* ホストコンソールでログインするときに打つ文字列 */
     bool console;           /* ホストコンソールを使う (標準入力が端末のとき) */
     struct modem_cfg modems[MAX_MODEMS];

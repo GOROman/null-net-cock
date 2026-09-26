@@ -1,6 +1,7 @@
 /*
  * SYSOP: 回線と時間・スケジュール (LINESET / CTIME / LBUSY / ACCESS / SDTIME / SCSET / SCLIST)
  */
+#include "help.h"
 #include "session.h"
 
 #include <ctype.h>
@@ -118,6 +119,7 @@ int cmd_lbusy(struct sess *s, const char *arg) {
 
 /* 回線ごとの本日 / 昨日のアクセス時間と回数、昨日の使用率、平均使用率 (記録のある日の平均) */
 int cmd_access(struct sess *s, const char *arg) {
+    if (help_has(HB_ACCESS)) return help_show(s, HB_ACCESS, &(struct help_ctx){.s = s, .board = -1});
     enum { MAXLOG = 512 };
     struct logent *e = malloc(sizeof *e * MAXLOG);
     pthread_mutex_lock(&g_lock);
@@ -240,21 +242,26 @@ int cmd_sclist(struct sess *s, const char *arg) {
 }
 
 /* オープニングで出す、期間型のスケジュールのメッセージ */
-int sched_opening(struct sess *s) {
+void sched_opening_text(char *buf, size_t sz) {
     char today[16];
     time_t now = time(NULL);
     struct tm tm;
     localtime_r(&now, &tm);
     strftime(today, sizeof today, "%Y-%m-%d", &tm);
-    char buf[2048] = "";
+    buf[0] = 0;
     pthread_mutex_lock(&g_lock);
     int n;
     struct sched *list = sched_list(&n);
     for (int i = 0; i < n; i++)
         if (!list[i].spot && strcmp(today, list[i].start) >= 0 && strcmp(today, list[i].end) <= 0) {
             size_t l = strlen(buf);
-            snprintf(buf + l, sizeof buf - l, "%s\n", list[i].msg);
+            snprintf(buf + l, sz - l, "%s\n", list[i].msg);
         }
     pthread_mutex_unlock(&g_lock);
+}
+
+int sched_opening(struct sess *s) {
+    char buf[2048];
+    sched_opening_text(buf, sizeof buf);
     return buf[0] ? out(s, "%s", buf) : 0;
 }
