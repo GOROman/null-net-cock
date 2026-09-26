@@ -226,6 +226,18 @@ static int wait_input(struct term *t) {
     }
 }
 
+/* 表示幅 (全角は 2、半角カナは 1) */
+static int char_width(const char *p, size_t len) {
+    unsigned char c = (unsigned char)p[0];
+    if (len == 1) return 1;
+    /* U+FF61〜U+FF9F (半角カナ) は EF BD A1〜EF BE 9F */
+    if (len == 3 && c == 0xEF && ((unsigned char)p[1] == 0xBD || (unsigned char)p[1] == 0xBE)) {
+        unsigned cp = ((c & 0x0F) << 12) | (((unsigned char)p[1] & 0x3F) << 6) | ((unsigned char)p[2] & 0x3F);
+        if (cp >= 0xFF61 && cp <= 0xFF9F) return 1;
+    }
+    return 2;
+}
+
 /* 届いている通知を表示する。強制切断なら T_KICKED */
 static int show_notices(struct term *t, const char *prompt, const char *typed, bool mask) {
     enum notice_kind kind;
@@ -247,22 +259,17 @@ static int show_notices(struct term *t, const char *prompt, const char *typed, b
     }
     if (shown && prompt) {
         term_printf(t, "\n%s", prompt);
-        if (mask) for (const char *p = typed; *p; p++) term_print(t, "*");
-        else term_print(t, typed);
+        if (mask) {
+            /* UTF-8 の 1 文字ごとに、全角なら＊、半角なら * */
+            for (const char *p = typed; *p;) {
+                size_t l = 1;
+                while (p[l] && ((unsigned char)p[l] & 0xC0) == 0x80) l++;
+                term_print(t, char_width(p, l) == 2 ? "＊" : "*");
+                p += l;
+            }
+        } else term_print(t, typed);
     }
     return T_OK;
-}
-
-/* 表示幅 (全角は 2、半角カナは 1) */
-static int char_width(const char *p, size_t len) {
-    unsigned char c = (unsigned char)p[0];
-    if (len == 1) return 1;
-    /* U+FF61〜U+FF9F (半角カナ) は EF BD A1〜EF BE 9F */
-    if (len == 3 && c == 0xEF && ((unsigned char)p[1] == 0xBD || (unsigned char)p[1] == 0xBE)) {
-        unsigned cp = ((c & 0x0F) << 12) | (((unsigned char)p[1] & 0x3F) << 6) | ((unsigned char)p[2] & 0x3F);
-        if (cp >= 0xFF61 && cp <= 0xFF9F) return 1;
-    }
-    return 2;
 }
 
 /* 端末の 1 文字ぶんのバイト数 (SJIS / UTF-8) */
@@ -300,7 +307,7 @@ int term_readline(struct term *t, const char *prompt, char *out, size_t outsz, i
                     /* UTF-8 の 1 文字ぶん戻す */
                     size_t s = len - 1;
                     while (s > 0 && ((unsigned char)line[s] & 0xC0) == 0x80) s--;
-                    int w = mask ? 1 : char_width(line + s, len - s);
+                    int w = char_width(line + s, len - s);
                     if (w == 2 && !t->bs_one_col) w = 1; /* BS 1 個で全角 1 文字戻る端末 */
                     len = s;
                     line[len] = 0;
@@ -311,7 +318,7 @@ int term_readline(struct term *t, const char *prompt, char *out, size_t outsz, i
                 while (len > 0) {
                     size_t s = len - 1;
                     while (s > 0 && ((unsigned char)line[s] & 0xC0) == 0x80) s--;
-                    int w = mask ? 1 : char_width(line + s, len - s);
+                    int w = char_width(line + s, len - s);
                     if (w == 2 && !t->bs_one_col) w = 1;
                     len = s;
                     if (!(flags & RL_NOECHO))
@@ -333,7 +340,7 @@ int term_readline(struct term *t, const char *prompt, char *out, size_t outsz, i
                         len += ul;
                         line[len] = 0;
                         if (flags & RL_NOECHO) {
-                        } else if (mask) term_write_raw(t, "*", 1);
+                        } else if (mask) term_print(t, char_width(u8, ul) == 2 ? "＊" : "*"); /* 全角は全角の＊ */
                         else term_write_raw(t, t->in, cl); /* 受け取ったまま返す */
                     } else term_write_raw(t, "\a", 1);
                 }

@@ -500,6 +500,20 @@ void *file_get(long fid, size_t *len) {
     return out;
 }
 
+long total_body_bytes(void) {
+    long n = 0;
+    for (int i = 0; i < g_nmsgs; i++)
+        if (!g_msgs[i].deleted) n += g_msgs[i].len;
+    return n;
+}
+
+long total_pds_bytes(void) {
+    long n = 0;
+    for (int i = 0; i < g_nmsgs; i++)
+        if (!g_msgs[i].deleted) n += g_msgs[i].fsize;
+    return n;
+}
+
 int board_count(int board) {
     int n = 0;
     for (int i = 0; i < g_nmsgs; i++) if (g_msgs[i].board == board && !g_msgs[i].deleted) n++;
@@ -727,7 +741,7 @@ void db_save_sys(void) {
     sys_put(st, "net_id", g_sys.net_id);
 #define PUT(name, fmt) snprintf(v, sizeof v, fmt, g_sys.name); sys_put(st, #name, v);
     PUT(min_minutes, "%d") PUT(user_minutes, "%d") PUT(user_level, "%d") PUT(temp_level, "%d")
-    PUT(chat_level, "%d") PUT(mail_size, "%d") PUT(signup, "%d") PUT(manager, "%d") PUT(aoff, "%d")
+    PUT(chat_level, "%d") PUT(mail_size, "%d") PUT(board_size, "%ld") PUT(pds_size, "%ld") PUT(signup, "%d") PUT(manager, "%d") PUT(aoff, "%d")
     PUT(total_logins, "%ld") PUT(guest_logins, "%ld")
     PUT(chat_call_level, "%d") PUT(imode_menu, "%d") PUT(imode_menu_always, "%d") PUT(imode_chat_esc, "%d")
     PUT(imode_chat_noecho, "%d") PUT(imode_chat_self, "%d") PUT(imode_chat_byid, "%d") PUT(keylock, "%d")
@@ -760,7 +774,7 @@ static void load_sys(void) {
         if (!k || !v) continue;
         if (!strcmp(k, "net_id")) snprintf(g_sys.net_id, sizeof g_sys.net_id, "%s", v);
 #define GET(name) else if (!strcmp(k, #name)) g_sys.name = atol(v);
-        GET(min_minutes) GET(user_minutes) GET(user_level) GET(temp_level) GET(chat_level) GET(mail_size)
+        GET(min_minutes) GET(user_minutes) GET(user_level) GET(temp_level) GET(chat_level) GET(mail_size) GET(board_size) GET(pds_size)
         GET(signup) GET(manager) GET(aoff) GET(total_logins) GET(guest_logins)
         GET(chat_call_level) GET(imode_menu) GET(imode_menu_always) GET(imode_chat_esc) GET(imode_chat_noecho)
         GET(imode_chat_self) GET(imode_chat_byid) GET(keylock)
@@ -824,6 +838,8 @@ int db_open(void) {
     g_sys.temp_level = 30;
     g_sys.chat_level = 0;
     g_sys.mail_size = 8192;
+    g_sys.board_size = 16L * 1024 * 1024;
+    g_sys.pds_size = 64L * 1024 * 1024;
     g_sys.signup = SIGNUP_AUTO;
     g_sys.manager = 1;
     g_sys.chat_call_level = 0;

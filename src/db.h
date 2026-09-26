@@ -114,6 +114,8 @@ struct system {
     int temp_level;         /* 仮 ID のレベル */
     int chat_level;
     int mail_size;
+    long board_size;        /* 総ボードサイズ: 本文の合計の上限 (バイト) */
+    long pds_size;          /* 総 PDS サイズ: プログラムボードのファイルの合計の上限 (バイト) */
     int signup;
     int manager;            /* 会員管理者の ID */
     bool aoff;              /* 新規ログイン禁止 */
@@ -195,6 +197,8 @@ struct msg *msg_get(int board, int seq);
 int msg_add(struct msg *m, const char *body);   /* 番号を振って追加。seq を返す */
 char *msg_body(const struct msg *m);            /* malloc した本文 */
 int board_count(int board);
+long total_body_bytes(void);
+long total_pds_bytes(void);
 int board_unread(int user, int board);
 bool mail_is_for(const struct msg *m, int user, int *slot);
 

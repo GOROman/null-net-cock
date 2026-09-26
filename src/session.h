@@ -115,6 +115,10 @@ int cmd_aon(struct sess *s, const char *arg);
 int cmd_aoff(struct sess *s, const char *arg);
 int cmd_filem(struct sess *s, const char *arg);
 int cmd_report(struct sess *s, const char *arg);
+int cmd_keylock(struct sess *s, const char *arg);
+int cmd_alarm(struct sess *s, const char *arg);
+int cmd_debug(struct sess *s, const char *arg);
+int cmd_hfcont(struct sess *s, const char *arg);
 int user_setup(struct sess *s, bool initial);
 
 /* 回線と時間・スケジュール (cmd_sys.c) */

@@ -312,6 +312,24 @@ static int write_msg(struct sess *s, int board, int reply_to, const int *to) {
         if ((r = ask(s, 194, a, sizeof a, RL_UPPER)) < 0) goto fail;
         switch (a[0]) {
         case 'Y': {
+            size_t blen = body ? strlen(body) : 0;
+            pthread_mutex_lock(&g_lock);
+            bool full = total_body_bytes() + (long)blen > g_sys.board_size;
+            bool pds_full = prog && total_pds_bytes() >= g_sys.pds_size;
+            int mail_max = g_sys.mail_size;
+            pthread_mutex_unlock(&g_lock);
+            if (board == MAIL_BOARD && mail_max > 0 && (int)blen > mail_max) {
+                if ((r = out(s, "==== メールの大きさの上限 (%d バイト) を超えています ====\n", mail_max)) < 0) goto fail;
+                break;
+            }
+            if (full) {
+                if ((r = outm_nl(s, 184)) < 0) goto fail;
+                break;
+            }
+            if (pds_full) {
+                if ((r = outm_nl(s, 306)) < 0) goto fail;
+                break;
+            }
             if (prog) {
                 if ((r = receive_file(s)) < 0) goto fail;
                 if (!s->upload) break;

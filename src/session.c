@@ -155,7 +155,7 @@ static const struct command {
     {"ACCESS", 0, 91, cmd_access, false},
     {"AON", 100, 117, cmd_aon, false},
     {"AOFF", 100, 118, cmd_aoff, false},
-    {"ALARM", 100, 106, NULL, false},
+    {"ALARM", 100, 106, cmd_alarm, false},
     {"JOIN", 0, 71, cmd_join, false},
     {"NEWMEM", 0, 72, cmd_newmem, false},
     {"GULV", 100, 55, cmd_gulv, true},
@@ -169,10 +169,10 @@ static const struct command {
     {"SIGNUP", 100, 111, cmd_signup, false},
     {"IMODE", 100, 114, cmd_imode, false},
     {"FILEM", 100, 98, cmd_filem, false},
-    {"HFCONT", 100, 95, NULL, false},
+    {"HFCONT", 100, 95, cmd_hfcont, false},
     {"REPORT", 100, 104, cmd_report, false},
-    {"KEYLOCK", 100, 116, NULL, false},
-    {"DEBUG", 100, 108, NULL, true},
+    {"KEYLOCK", 100, 116, cmd_keylock, false},
+    {"DEBUG", 100, 108, cmd_debug, true},
 };
 #define NCMD (int)(sizeof commands / sizeof commands[0])
 

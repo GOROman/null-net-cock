@@ -573,6 +573,14 @@ static int ask_num(struct sess *s, const char *label, int id, int *v, int max) {
     return 0;
 }
 
+static int ask_long(struct sess *s, const char *label, long *v) {
+    CHK(out(s, "%s [%ld] ", label, *v));
+    char a[32];
+    CHK(ask(s, 341, a, sizeof a, 0));
+    if (a[0] && atol(a) >= 0) *v = atol(a);
+    return 0;
+}
+
 int cmd_sysset(struct sess *s, const char *arg) {
     struct system t;
     pthread_mutex_lock(&g_lock);
@@ -588,6 +596,8 @@ int cmd_sysset(struct sess *s, const char *arg) {
     CHK(ask_num(s, "ゲストの持ち時間", 154, &t.min_minutes, 1440));
     CHK(ask_num(s, "会員の持ち時間", 154, &t.user_minutes, 1440));
     CHK(ask_num(s, "メールの大きさ", 341, &t.mail_size, 65536));
+    CHK(ask_long(s, "総ボードサイズ", &t.board_size));
+    CHK(ask_long(s, "総 PDS サイズ", &t.pds_size));
     CHK(ask_num(s, "会員管理者の ID", 343, &t.manager, MAX_USERS - 1));
     pthread_mutex_lock(&g_lock);
     memcpy(g_sys.net_id, t.net_id, sizeof g_sys.net_id);
@@ -597,6 +607,8 @@ int cmd_sysset(struct sess *s, const char *arg) {
     g_sys.min_minutes = t.min_minutes;
     g_sys.user_minutes = t.user_minutes;
     g_sys.mail_size = t.mail_size;
+    g_sys.board_size = t.board_size;
+    g_sys.pds_size = t.pds_size;
     g_sys.manager = t.manager;
     db_save_sys();
     pthread_mutex_unlock(&g_lock);
@@ -641,23 +653,3 @@ int cmd_filem(struct sess *s, const char *arg) {
     return out(s, "%s (%d)\n", M(297), n);
 }
 
-int cmd_report(struct sess *s, const char *arg) {
-    pthread_mutex_lock(&g_lock);
-    int napps, pending = 0, users = 0;
-    struct application *a = app_list(&napps);
-    for (int i = 0; i < napps; i++)
-        if (!a[i].issued_id) pending++;
-    for (int i = 0; i < g_nusers; i++)
-        if (user_get(i)) users++;
-    int msgs = 0;
-    for (int i = 0; i < g_nmsgs; i++)
-        if (!g_msgs[i].deleted) msgs++;
-    struct system t = g_sys;
-    pthread_mutex_unlock(&g_lock);
-    char started[32], now[32];
-    fmt_time(t.started, started, sizeof started);
-    fmt_time(time(NULL), now, sizeof now);
-    return out(s, "%s%s\n%s%d\n%s%d/%d\n%s%d\n%s%ld\n%s%ld (ゲスト %ld)\n%s%s\n", M(389), started, M(271), pending,
-               M(272), users, MAX_USERS, M(273), msgs, M(274), (long)(time(NULL) - t.started) / 60, M(275),
-               t.total_logins, t.guest_logins, M(281), now);
-}
