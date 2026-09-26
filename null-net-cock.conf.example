@@ -13,6 +13,12 @@ default_code = sjis            # 端末の文字コード: sjis / utf8
 # NET-COCK 付属の文言ファイルを指定すると、元と同じ文言で表示する (Shift_JIS のまま置いてよい)
 #mes_file = /path/to/MES.TXT
 #sysmes_file = /path/to/SYS_MES.DAT
+#mes_esc_file = /path/to/MES_ESC.TXT     # ESC を使うと答えた会員に出す文言
+#help_file = /path/to/HELP.TXT           # 表示のテンプレート
+
+# ホストコンソール (起動した端末から操作する。標準入力が端末のときだけ動く)
+#console = on
+#host_access = cock                      # ホストからログインするときに打つ文字列
 
 # モデム回線 (USB-UART などのシリアルにつないだモデムで着信を受ける)
 # modem<回線番号>.<項目> の形で書く。その回線番号は TCP では使わない

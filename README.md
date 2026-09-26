@@ -4,13 +4,17 @@ X68000 用のパソコン通信ホストプログラム **NET-COCK** と互換�
 macOS / Linux で動き、TCP (telnet) とモデム (シリアル) で接続できます。
 
 - NET-COCK のコマンド体系をそのまま使えます (BREAD / BWRITE / RALL / MREAD / MWRITE / CHAT / LLIST / LOG …)。コマンドは省略でき、前方一致で最初に当たるものが選ばれます
-- メッセージ ID の割り当ては NET-COCK の `MES.TXT` と同じです。お手持ちの `MES.TXT` / `SYS_MES.DAT` を設定で指定すると、元と同じ文言で表示されます
+- メッセージ ID の割り当ては NET-COCK の `MES.TXT` と同じです。お手持ちの `MES.TXT` / `MES_ESC.TXT` / `SYS_MES.DAT` / `HELP.TXT` を設定で指定すると、元と同じ文言・表示になります
 - 初期データも NET-COCK と同じで、ゲスト (ID 0) と SYSOP (ID 1、パスワード `ABC`) だけ、ボードはありません
 - プログラムボード (PDS) に対応。XMODEM (SUM / CRC / 1K)・YMODEM・YMODEM-g でファイルを上げ下ろしでき、BATCH で YMODEM バッチ転送もできます
 - データは SQLite (`data/net-cock.db`) に保存します。終了のシグナルを受けたときも保存してから終わります
 - 1 回線 1 スレッド、最大 128 回線
-- 端末の文字コードは Shift_JIS (既定) か UTF-8。全角文字の BS も正しく消えます
-- チャット・電報・ログイン/ログアウトの通知は、入力中でも割り込んで表示します
+- 端末の文字コードは Shift_JIS (既定) か UTF-8。全角文字の BS も正しく消えます (BS テストの結果に合わせる)
+- チャット (回線ごとの送受信の ON/OFF、個別送出、シスオペの呼び出しなど)・ログイン/ログアウトの通知は、入力中でも割り込んで表示します
+- メニュー方式、ESC 版の文言 (`MES_ESC.TXT`)、HELP.TXT の表示テンプレートとマクロ
+- 持ち時間の数え方 (LINESET)、スケジューラ、SDTIME、CTIME、会員管理 (MAKEID / GULV / UDLIST / UDEDIT / IDCOPY …)、HFCONT
+- モデム回線: 初期化、RING で ATA、CONNECT の速度を LOG に記録、キャリア断 (DCD / NO CARRIER) で切断
+- ホストコンソール (0 回線): 起動した端末からホストとしてログイン、回線の監視と代わりの操作、強制切断
 
 ## NET-COCK との関係
 
