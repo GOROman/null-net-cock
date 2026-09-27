@@ -1,6 +1,10 @@
 CC ?= cc
 CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Wno-unused-parameter -D_DEFAULT_SOURCE -D_DARWIN_C_SOURCE
-LDLIBS = -lpthread -liconv -lsqlite3
+UNAME_S := $(shell uname -s)
+LDLIBS = -lpthread -lsqlite3
+ifeq ($(UNAME_S),Darwin)
+LDLIBS += -liconv
+endif
 SRC = $(wildcard src/*.c)
 OBJ = $(SRC:src/%.c=build/%.o)
 
