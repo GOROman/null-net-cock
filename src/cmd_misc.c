@@ -204,6 +204,15 @@ int signup_auto(struct sess *s, bool ask_first) {
     pthread_mutex_unlock(&g_lock);
     if (id <= 0) return outm_nl(s, 351);
     nc_log("CH%02d: 仮 ID %d を自動発行", s->no, id);
+    /* このセッションもすぐ新しい ID として扱う (でないと発行直後は
+       まだゲストの権限のままボードに書き込めない) */
+    s->uid = id;
+    char idbuf[16];
+    snprintf(idbuf, sizeof idbuf, "%d", id);
+    online_set_user(s->no, idbuf, a.logname);
+    pthread_mutex_lock(&g_lock);
+    g_online[s->no].uid = id;
+    pthread_mutex_unlock(&g_lock);
     CHK(out(s, "｢%s%04d%s\n", g_sys.net_id, id, M(352)));
     char dummy[8];
     return ask(s, 353, dummy, sizeof dummy, 0);

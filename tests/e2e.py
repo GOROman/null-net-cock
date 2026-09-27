@@ -174,7 +174,9 @@ def main():
         c.expect("メールの確認を終わります。")
         a.talk(">", "LOG")
         got = a.expect(">")
-        assert "Guest" in got, got
+        # b は仮 ID 発行後すぐその ID として扱われるので、ゲストではなく 0002 で記録される
+        # (ハンドル名はまだ無いので空。c が初めてログインしたときに登録する)
+        assert "0002:" in got, got
         a.talk("", "CHAT")
         a.talk("chat:", "こんにちは")
         c.expect("こんにちは")

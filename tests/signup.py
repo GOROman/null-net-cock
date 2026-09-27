@@ -54,6 +54,10 @@ def main():
         got = g.expect("があなたの ID です")
         assert "TEST0002" in got, got
         g.talk("Enter を押してください。", "")
+        # 仮 ID 発行後は g もすぐそのままの ID になっているので、
+        # 別回線から同じ ID でログインする前に切っておく
+        g.talk(">", "OFF")
+        g.talk("回線を切りますか", "y")
 
         c = e2e.Client()
         c.talk("ID:", "ねこ")
