@@ -71,7 +71,7 @@ def main():
     tmp = tempfile.mkdtemp(prefix="nnc-")
     conf = os.path.join(tmp, "test.conf")
     with open(conf, "w") as f:
-        f.write(f'bbs_name = "TEST-NET"\nlisten = 127.0.0.1:{PORT}\ndata_dir = {tmp}/data\n')
+        f.write(f'bbs_name = "TEST-NET"\nlisten = 127.0.0.1:{PORT}\ndata_dir = {tmp}/data\nsignup_fields = netcock\nprofile_fields = netcock\n')
     srv = subprocess.Popen([BIN, "-c", conf], stderr=subprocess.PIPE)
     try:
         wait_port()

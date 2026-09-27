@@ -14,7 +14,7 @@
  *       I 本日の残り  J 1 日の持ち時間  K レベル  L 本日の回数  M 回線  N ログイン回数  O P 今月・前月の回数
  *       Q 全体のログイン回数  R 全体のゲストログイン回数  S ID  T U V 書き込み数  W ID の発行日
  *       n 公開住所  o 職業  p 機種  q 自己紹介  r 登録住所  s 氏名  t UREAD の ID  { パスワードミスの回数
- *       | スケジュール  aN bN cN 回線 N の本日・昨日・累計の時間  dN 昨日の使用率  eMN 回線 M〜N の平均
+ *       | スケジュール  ` X のアカウント (独自)  aN bN cN 回線 N の本日・昨日・累計の時間  dN 昨日の使用率  eMN 回線 M〜N の平均
  *       fN gN hN 回数 (N = * は全回線)  i j アクセスが無かった時間 (本日・昨日)  k l BUSY 時間
  *   /m    以後の会員データを UREAD の相手のものにする
  *   条件: X リプライ  Y メール  Z プログラム  } ルート  ~ タイトルだけ  u 仮会員  v 一般  w Sigop
@@ -47,7 +47,7 @@ static const char *const fallback[NBLOCK] = {
     "/4\n/H (%H 秒)\n",
     /* 6 UREAD */
     "/mID        : /S  %K\nログネーム: %?\n住所      : %n\n職業      : %o\n機種      : %p\n自己紹介  : %q\n"
-    "最終接続  : %B %C\n総使用時間: /E  ログイン %N 回\n書き込み  : ボード %T / メール %U / プログラム %V\n",
+    "X         : %`\n最終接続  : %B %C\n総使用時間: /E  ログイン %N 回\n書き込み  : ボード %T / メール %U / プログラム %V\n",
     /* 7 USTAT */
     "今回のログイン : /@ /A (前回 /B /C)\n利用時間       : 今回 /H / 本日 /D / 今月 /F / 前月 /G / 合計 /E\n"
     "持ち時間       : 本日の残り %I 分 (1 日 %J 分)\nログイン回数   : 今月 %O / 前月 %P / 合計 %N\n"
@@ -67,10 +67,10 @@ static const char *const fallback[NBLOCK] = {
     /* 12 バッチのヘルプ */
     "Y:転送する O:転送して回線を切る N:抜ける D:リストから外す L:一覧 C:リストを空にする\n",
     /* 13 自動発行の案内 */
-    "入会の申し込みです。全部の項目に答えてください。フリガナは姓と名の間に空白を入れてください。\n"
+    "入会の申し込みです。聞かれた項目に全部答えてください。\n"
     "すぐに仮 ID を発行します。内容を確かめてから正会員にします。\n",
     /* 14 手作業発行の案内 */
-    "入会の申し込みです。全部の項目に答えてください。フリガナは姓と名の間に空白を入れてください。\n",
+    "入会の申し込みです。聞かれた項目に全部答えてください。ID の発行までしばらくお待ちください。\n",
 };
 
 /* 旧版 (6 ブロック: チャット・書き込み・読み出し・バッチ・自動発行・手作業発行) の並び */
@@ -298,6 +298,7 @@ static bool value(const struct help_ctx *c, const struct user *u, char k, bool l
     case 's': if (u) STR(u->name); return true;
     case 't': if (c->target) ID(c->target->id); return true;
     case '{': if (u) snprintf(o, sz, "%d", u->pass_miss); return true;
+    case '`': if (u && u->x_account[0]) snprintf(o, sz, "@%s", u->x_account); return true; /* 独自: X のアカウント */
     case 'a': case 'b': case 'c': case 'd': case 'f': case 'g': case 'h': {
         int line = read_line_no(pp);
         struct stat_line st;

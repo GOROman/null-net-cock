@@ -42,6 +42,17 @@ struct modem_cfg {
     char code[8];           /* 文字コード (空なら default_code) */
 };
 
+/* 入会の申し込み・初回ログインで聞く項目 (パスワードは必ず聞く) */
+enum {
+    SF_NAME = 1 << 0, SF_KANA = 1 << 1, SF_ADDR = 1 << 2, SF_ZIP = 1 << 3, SF_TEL = 1 << 4, /* 申し込みの項目 */
+    SF_HANDLE = 1 << 5,                                                                      /* ハンドル名 (ログネーム) */
+    SF_PUB_ADDR = 1 << 6, SF_JOB = 1 << 7, SF_MACHINE = 1 << 8, SF_BIRTH = 1 << 9, SF_SEX = 1 << 10,
+    SF_TERM = 1 << 11,                                                                       /* ESC と BS テスト */
+    SF_INTRO = 1 << 12, SF_X = 1 << 13,                                                      /* 自己紹介 / X アカウント */
+};
+#define SF_NETCOCK_SIGNUP (SF_NAME | SF_KANA | SF_ADDR | SF_ZIP | SF_TEL)
+#define SF_NETCOCK_PROFILE (SF_PUB_ADDR | SF_JOB | SF_MACHINE | SF_BIRTH | SF_SEX | SF_TERM | SF_HANDLE | SF_INTRO)
+
 struct config {
     char bbs_name[128];
     char net_id[16];        /* ネットワーク ID (例: COCK) */
@@ -58,7 +69,9 @@ struct config {
     char sysmes_file[512];  /* NET-COCK の SYS_MES.DAT */
     char mes_esc_file[512]; /* NET-COCK の MES_ESC.TXT (ESC を使う会員に出す) */
     char help_file[512];    /* NET-COCK の HELP.TXT */
-    char host_access[32];   /* ホストコンソールでログインするときに打つ文字列 */
+    char host_access[32];
+    int signup_fields;      /* 入会の申し込みで聞く項目 (既定: ハンドル名) */
+    int profile_fields;     /* 初回ログインで聞く項目 (既定: なし) */   /* ホストコンソールでログインするときに打つ文字列 */
     bool console;           /* ホストコンソールを使う (標準入力が端末のとき) */
     struct modem_cfg modems[MAX_MODEMS];
     int nmodems;
@@ -68,6 +81,7 @@ extern struct config g_cfg;
 extern pthread_mutex_t g_lock;
 
 int config_load(const char *path);
+int parse_fields(const char *list, int netcock_bits);
 
 /* ------------------------------------------------------------ 端末 (1 回線ぶんの入出力) */
 

@@ -19,11 +19,11 @@ static int yn_neg(struct sess *s, int id) {
 
 /* ------------------------------------------------------------ 項目番号 */
 
-#define NUD 27
+#define NUD 28
 static const char *const ud_label[NUD] = {
     "レベル", "持ち時間", "本日の残り", "メールレベル", "ログネーム", "性別", "フリガナ", "氏名", "電話番号",
     "郵便番号", "登録住所", "公開住所", "職業", "機種", "パスワード", "生年月日", "申請日", "登録日", "最終接続日",
-    "書込(B)", "書込(M)", "書込(P)", "ログイン数", "総時間", "今月", "前月", "ID",
+    "書込(B)", "書込(M)", "書込(P)", "ログイン数", "総時間", "今月", "前月", "ID", "X",
 };
 
 static void day(time_t t, char *buf, size_t sz) {
@@ -60,6 +60,7 @@ static void ud_get(const struct user *u, int k, char *buf, size_t sz) {
     case 24: snprintf(buf, sz, "%ld", u->month_sec / 60); break;
     case 25: snprintf(buf, sz, "%ld", u->prev_month_sec / 60); break;
     case 26: snprintf(buf, sz, "%d", u->id); break;
+    case 27: snprintf(buf, sz, "%s", u->x_account); break;
     default: buf[0] = 0;
     }
 }
@@ -85,6 +86,7 @@ static bool ud_set(struct user *u, int k, const char *v) {
     case 13: S(machine); return true;
     case 14: S(pass); return true;
     case 15: S(birth); return true;
+    case 27: S(x_account); return true;
     }
 #undef S
     return false;
@@ -102,7 +104,7 @@ static int ask_fields(struct sess *s, int *fields) {
     else if (a[0] == 'B') src = set_b, n = 12;
     else if (a[0] == 'C') src = set_c, n = 6;
     else if (a[0] == 'U') {
-        CHK(ask_str(s, "項目の番号 (0〜26 をカンマで区切る)＞", a, sizeof a, 0));
+        CHK(ask_str(s, "項目の番号 (0〜27 をカンマで区切る)＞", a, sizeof a, 0));
         for (char *save, *p = strtok_r(a, ", ", &save); p && n < NUD; p = strtok_r(NULL, ", ", &save)) {
             int k = atoi(p);
             if (k >= 0 && k < NUD) fields[n++] = k;
@@ -292,7 +294,8 @@ int cmd_makeid(struct sess *s, const char *arg) {
         if (idx < 0) return outm_nl(s, 29);
         char ts[32];
         fmt_time(a.t, ts, sizeof ts);
-        CHK(out(s, "\n#%d %s\n氏名 %s (%s)\n〒%s %s\nTEL %s\n", a.no, ts, a.name, a.kana, a.zip, a.addr, a.tel));
+        CHK(out(s, "\n#%d %s  ハンドル名 %s%s%s\n氏名 %s (%s)\n〒%s %s\nTEL %s\n", a.no, ts, a.logname,
+                a.x_account[0] ? "  X @" : "", a.x_account, a.name, a.kana, a.zip, a.addr, a.tel));
         char c[16];
         CHK(ask(s, 31, c, sizeof c, RL_UPPER));
         if (c[0] == 'Q') return outm_nl(s, 30);

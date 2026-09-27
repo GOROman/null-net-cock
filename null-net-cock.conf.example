@@ -12,6 +12,15 @@ session_minutes = 60           # 会員の 1 日の持ち時間 (初回起動時
 guest_minutes = 15             # ゲストの持ち時間 (初回起動時の既定値)
 default_code = sjis            # 端末の文字コード: sjis / utf8
 
+# 入会のときに聞く個人情報 (パスワードは必ず聞く)。カンマで並べる
+#   signup_fields  入会の申し込みで聞く: handle (ハンドル名) name (氏名) kana (フリガナ) addr (住所) zip (郵便番号)
+#                  tel (電話番号) x (X のアカウント)
+#   profile_fields 初めてログインしたときに聞く: handle pub_addr (公開する住所) job (職業) machine (機種)
+#                  birth (生年月日) sex (性別) term (ESC と BS テスト) intro (自己紹介) x
+#   netcock と書くと NET-COCK と同じ聞き方 (申し込み: 氏名〜電話番号 / 初回: 公開住所〜自己紹介)
+signup_fields = handle
+profile_fields =
+
 # NET-COCK 付属の文言ファイルを指定すると、元と同じ文言で表示する (Shift_JIS のまま置いてよい)
 #mes_file = /path/to/MES.TXT
 #sysmes_file = /path/to/SYS_MES.DAT

@@ -54,6 +54,7 @@ struct user {
        (古いデータに列を足したとき 0 になるので、0 が普通の動きになる向きにしてある) */
     bool chat_esc, chat_noecho, chat_self, chat_byid;
     int lcall;              /* LCSET: 0 なし / 1 次のシステムダウンまで / 2 解除するまで */
+    char x_account[32];     /* X のアカウント (@ なし。空は未登録) */
 };
 
 enum board_type { BT_BOARD = 'B', BT_MAIL = 'M', BT_PROGRAM = 'P' };
@@ -101,6 +102,8 @@ struct application {
     int no;
     time_t t;
     char name[64], kana[64], addr[128], zip[16], tel[32], pass[32];
+    char logname[64];       /* ハンドル名 (申し込みで聞いたとき) */
+    char x_account[32];     /* X のアカウント (@ なし) */
     int issued_id;          /* 発行済みなら ID */
 };
 

@@ -55,7 +55,7 @@ static const struct field user_fields[] = {
     FLD(user, esc, F_BOOL), FLD(user, bs_one_col, F_BOOL), FLD(user, menu, F_BOOL), FLD(user, chat_on_login, F_BOOL),
     FLD(user, mailbox_closed, F_BOOL), FLD(user, secret, F_BOOL), FLD(user, menu_always, F_BOOL),
     FLD(user, chat_esc, F_BOOL), FLD(user, chat_noecho, F_BOOL), FLD(user, chat_self, F_BOOL),
-    FLD(user, chat_byid, F_BOOL), FLD(user, lcall, F_INT),
+    FLD(user, chat_byid, F_BOOL), FLD(user, lcall, F_INT), FLD(user, x_account, F_STR),
 };
 
 static const struct field board_fields[] = {
@@ -79,6 +79,7 @@ static const struct field app_fields[] = {
     FLD(application, no, F_INT), FLD(application, t, F_LONG), FLD(application, name, F_STR),
     FLD(application, kana, F_STR), FLD(application, addr, F_STR), FLD(application, zip, F_STR),
     FLD(application, tel, F_STR), FLD(application, pass, F_STR), FLD(application, issued_id, F_INT),
+    FLD(application, logname, F_STR), FLD(application, x_account, F_STR),
 };
 
 static const struct field sched_fields[] = {

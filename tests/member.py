@@ -27,7 +27,7 @@ def main():
     tmp = tempfile.mkdtemp(prefix="nnc-u-")
     conf = os.path.join(tmp, "test.conf")
     with open(conf, "w") as f:
-        f.write(f"listen = 127.0.0.1:{e2e.PORT}\ndata_dir = {tmp}/data\n")
+        f.write(f"listen = 127.0.0.1:{e2e.PORT}\ndata_dir = {tmp}/data\nsignup_fields = netcock\nprofile_fields = netcock\n")
     srv = subprocess.Popen([e2e.BIN, "-c", conf], stderr=None if os.environ.get("VERBOSE") else subprocess.DEVNULL)
     try:
         e2e.wait_port()

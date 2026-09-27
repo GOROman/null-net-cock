@@ -19,11 +19,31 @@ struct config g_cfg = {
     .guest_minutes = 15,
     .default_code = "sjis",
     .host_access = "cock",
+    .signup_fields = SF_HANDLE,
+    .profile_fields = 0,
     .console = true,
 };
 
 pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t log_lock = PTHREAD_MUTEX_INITIALIZER;
+
+/* 「handle,x」のような並びを項目の集合にする。netcock は元の NET-COCK と同じ聞き方 (netcock_bits) */
+int parse_fields(const char *list, int netcock_bits) {
+    static const struct { const char *name; int bit; } names[] = {
+        {"name", SF_NAME}, {"kana", SF_KANA}, {"addr", SF_ADDR}, {"zip", SF_ZIP}, {"tel", SF_TEL},
+        {"handle", SF_HANDLE}, {"pub_addr", SF_PUB_ADDR}, {"job", SF_JOB}, {"machine", SF_MACHINE},
+        {"birth", SF_BIRTH}, {"sex", SF_SEX}, {"term", SF_TERM}, {"intro", SF_INTRO}, {"x", SF_X},
+    };
+    int bits = 0;
+    char buf[512];
+    snprintf(buf, sizeof buf, "%s", list);
+    for (char *save, *p = strtok_r(buf, ", ", &save); p; p = strtok_r(NULL, ", ", &save)) {
+        if (!strcmp(p, "netcock")) bits |= netcock_bits;
+        for (size_t i = 0; i < sizeof names / sizeof names[0]; i++)
+            if (!strcmp(p, names[i].name)) bits |= names[i].bit;
+    }
+    return bits;
+}
 
 /* modem<回線>.<項目> = 値 */
 static void modem_key(int line, const char *dot, const char *val) {
@@ -86,6 +106,8 @@ int config_load(const char *path) {
 #define STR(name) if (!strcmp(key, #name)) snprintf(g_cfg.name, sizeof g_cfg.name, "%s", val);
 #define INT(name) if (!strcmp(key, #name)) g_cfg.name = atoi(val);
         STR(bbs_name) STR(net_id) STR(data_dir) STR(listen) STR(default_code) STR(mes_file) STR(sysmes_file) STR(mes_esc_file) STR(host_access) STR(help_file) STR(ws_listen) STR(ws_code)
+        if (!strcmp(key, "signup_fields")) g_cfg.signup_fields = parse_fields(val, SF_NETCOCK_SIGNUP);
+        if (!strcmp(key, "profile_fields")) g_cfg.profile_fields = parse_fields(val, SF_NETCOCK_PROFILE);
         if (!strcmp(key, "console")) g_cfg.console = !strcmp(val, "on") || !strcmp(val, "1") || !strcmp(val, "yes");
         INT(max_lines) INT(idle_timeout) INT(session_minutes) INT(guest_minutes)
 #undef STR

@@ -49,30 +49,71 @@ static bool logname_ok(const char *name, int self) {
 }
 
 /* 初めてのログイン (initial) か UWRITE で公開情報を入力する */
+/* X のアカウントを整える (先頭の @ を取り、英数字と _ の 15 文字まで)。使えない文字があれば false */
+static bool x_normalize(char *x) {
+    char *p = x;
+    while (*p == ' ' || *p == '@') p++;
+    memmove(x, p, strlen(p) + 1);
+    str_trim(x);
+    if (strlen(x) > 15) return false;
+    for (p = x; *p; p++)
+        if (!isalnum((unsigned char)*p) && *p != '_') return false;
+    return true;
+}
+
+static int ask_x(struct sess *s, char *x, size_t sz, bool show) {
+    for (;;) {
+        char a[64];
+        if (show && x[0]) CHK(out(s, "[@%s] (消すときは - )\n", x));
+        CHK(ask_str(s, "X (旧 Twitter) のアカウント (@ なし。無ければ Enter)>", a, sizeof a, 0));
+        if (!a[0]) return 0;
+        if (!strcmp(a, "-")) {
+            x[0] = 0;
+            return 0;
+        }
+        if (x_normalize(a)) {
+            snprintf(x, sz, "%s", a);
+            return 0;
+        }
+        CHK(out(s, "==== 英数字と _ の 15 文字までで入れてください ====\n"));
+    }
+}
+
+static int ask_handle(struct sess *s, char *name, size_t sz, int self, bool show) {
+    for (;;) {
+        CHK(ask_keep(s, 9, name, sz, show));
+        if (logname_ok(name, self)) return 0;
+        CHK(outm_nl(s, 18));
+        name[0] = 0;
+    }
+}
+
+/* 初めてのログイン (initial: 設定の profile_fields で決めた項目) か UWRITE (公開情報を全部と X) */
 int user_setup(struct sess *s, bool initial) {
     struct user tmp = *USER(s);
     bool show = !initial;
-    if (initial) CHK(outm_nl(s, 8));
-    CHK(ask_keep(s, 10, tmp.addr_pub, sizeof tmp.addr_pub, show));
-    CHK(ask_keep(s, 11, tmp.job, sizeof tmp.job, show));
-    CHK(ask_keep(s, 12, tmp.machine, sizeof tmp.machine, show));
-    CHK(ask_keep(s, 14, tmp.birth, sizeof tmp.birth, show));
-    int r = yn(s, 15);
-    if (r < 0) return r;
-    snprintf(tmp.sex, sizeof tmp.sex, "%s", r ? "M" : "F");
-    r = yn(s, 16);
-    if (r < 0) return r;
-    tmp.esc = r;
-    r = yn(s, 17);
-    if (r < 0) return r;
-    tmp.bs_one_col = r;
-    for (;;) {
-        CHK(ask_keep(s, 9, tmp.logname, sizeof tmp.logname, show));
-        if (logname_ok(tmp.logname, s->uid)) break;
-        CHK(outm_nl(s, 18));
-        tmp.logname[0] = 0;
+    int f = initial ? g_cfg.profile_fields : (SF_NETCOCK_PROFILE | SF_X);
+    /* ハンドル名がまだ無ければ必ず聞く */
+    if (!tmp.logname[0]) f |= SF_HANDLE;
+    if (initial && f) CHK(outm_nl(s, 8));
+    if (f & SF_PUB_ADDR) CHK(ask_keep(s, 10, tmp.addr_pub, sizeof tmp.addr_pub, show));
+    if (f & SF_JOB) CHK(ask_keep(s, 11, tmp.job, sizeof tmp.job, show));
+    if (f & SF_MACHINE) CHK(ask_keep(s, 12, tmp.machine, sizeof tmp.machine, show));
+    if (f & SF_BIRTH) CHK(ask_keep(s, 14, tmp.birth, sizeof tmp.birth, show));
+    int r;
+    if (f & SF_SEX) {
+        if ((r = yn(s, 15)) < 0) return r;
+        snprintf(tmp.sex, sizeof tmp.sex, "%s", r ? "M" : "F");
     }
-    CHK(ask_keep(s, 13, tmp.intro, sizeof tmp.intro, show));
+    if (f & SF_TERM) {
+        if ((r = yn(s, 16)) < 0) return r;
+        tmp.esc = r;
+        if ((r = yn(s, 17)) < 0) return r;
+        tmp.bs_one_col = r;
+    }
+    if (f & SF_HANDLE) CHK(ask_handle(s, tmp.logname, sizeof tmp.logname, s->uid, show));
+    if (f & SF_INTRO) CHK(ask_keep(s, 13, tmp.intro, sizeof tmp.intro, show));
+    if (f & SF_X) CHK(ask_x(s, tmp.x_account, sizeof tmp.x_account, show));
     pthread_mutex_lock(&g_lock);
     struct user *u = USER(s);
     snprintf(u->addr_pub, sizeof u->addr_pub, "%s", tmp.addr_pub);
@@ -82,6 +123,7 @@ int user_setup(struct sess *s, bool initial) {
     snprintf(u->sex, sizeof u->sex, "%s", tmp.sex);
     snprintf(u->logname, sizeof u->logname, "%s", tmp.logname);
     snprintf(u->intro, sizeof u->intro, "%s", tmp.intro);
+    snprintf(u->x_account, sizeof u->x_account, "%s", tmp.x_account);
     u->esc = tmp.esc;
     u->bs_one_col = tmp.bs_one_col;
     s->t->bs_one_col = tmp.bs_one_col;
@@ -96,12 +138,16 @@ int user_setup(struct sess *s, bool initial) {
 }
 
 /* 入会申し込みの項目。全部入ったら 1、足りなければ 0 */
+/* 入会申し込みの項目 (設定の signup_fields で決めたものとパスワード)。全部入ったら 1、足りなければ 0 */
 int application_input(struct sess *s, struct application *a) {
-    CHK(ask(s, 19, a->name, sizeof a->name, 0));
-    CHK(ask(s, 20, a->kana, sizeof a->kana, 0));
-    CHK(ask(s, 21, a->addr, sizeof a->addr, 0));
-    CHK(ask(s, 22, a->zip, sizeof a->zip, 0));
-    CHK(ask(s, 23, a->tel, sizeof a->tel, 0));
+    int f = g_cfg.signup_fields;
+    if (f & SF_NAME) CHK(ask(s, 19, a->name, sizeof a->name, 0));
+    if (f & SF_KANA) CHK(ask(s, 20, a->kana, sizeof a->kana, 0));
+    if (f & SF_ADDR) CHK(ask(s, 21, a->addr, sizeof a->addr, 0));
+    if (f & SF_ZIP) CHK(ask(s, 22, a->zip, sizeof a->zip, 0));
+    if (f & SF_TEL) CHK(ask(s, 23, a->tel, sizeof a->tel, 0));
+    if (f & SF_HANDLE) CHK(ask_handle(s, a->logname, sizeof a->logname, -1, false));
+    if (f & SF_X) CHK(ask_x(s, a->x_account, sizeof a->x_account, false));
     for (;;) {
         char p2[32];
         CHK(ask(s, 24, a->pass, sizeof a->pass, RL_MASK | RL_UPPER));
@@ -109,7 +155,10 @@ int application_input(struct sess *s, struct application *a) {
         CHK(ask(s, 25, p2, sizeof p2, RL_MASK | RL_UPPER));
         if (!strcmp(a->pass, p2)) break;
     }
-    if (!a->name[0] || !a->kana[0] || !a->addr[0] || !a->tel[0] || !a->pass[0]) {
+    bool missing = !a->pass[0] || ((f & SF_NAME) && !a->name[0]) || ((f & SF_KANA) && !a->kana[0]) ||
+                   ((f & SF_ADDR) && !a->addr[0]) || ((f & SF_TEL) && !a->tel[0]) ||
+                   ((f & SF_HANDLE) && !a->logname[0]);
+    if (missing) {
         CHK(outm_nl(s, 28));
         return 0;
     }
@@ -128,7 +177,11 @@ int issue_from(const struct application *a, int level, int at) {
     snprintf(u->zip, sizeof u->zip, "%s", a->zip);
     snprintf(u->tel, sizeof u->tel, "%s", a->tel);
     snprintf(u->pass, sizeof u->pass, "%s", a->pass);
+    snprintf(u->logname, sizeof u->logname, "%s", a->logname);
+    snprintf(u->x_account, sizeof u->x_account, "%s", a->x_account);
     u->applied = a->t;
+    /* ハンドル名があって、初回に聞く項目が無ければ、初回の登録はいらない */
+    if (u->logname[0] && !g_cfg.profile_fields) u->flags &= ~UF_NEW;
     db_save_users();
     db_save_ptrs();
     return id;
@@ -168,7 +221,7 @@ int cmd_join(struct sess *s, const char *arg) {
     pthread_mutex_lock(&g_lock);
     app_add(&a);
     pthread_mutex_unlock(&g_lock);
-    nc_log("CH%02d: 入会の申し込み %s", s->no, a.name);
+    nc_log("CH%02d: 入会の申し込み %s", s->no, a.logname[0] ? a.logname : a.name);
     return outm_nl(s, 27);
 }
 
