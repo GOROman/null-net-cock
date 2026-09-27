@@ -143,7 +143,7 @@ def main():
         assert "[SAMPLE  .BIN]" in got, got
         a.send("Y")
         a.expect("中止)。")
-        rc = relay(a, ["rz", "--ymodem", "-q", "-y"], out)
+        rc = relay(a, ["rz", "--ymodem", "-q", "-y", "-u"], out)
         assert rc == 0, f"rz {rc}"
         a.expect("転送が終わりました。")
         with open(os.path.join(out, "SAMPLE.BIN"), "rb") as f:
