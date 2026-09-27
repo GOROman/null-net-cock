@@ -1,7 +1,7 @@
 # null-net-cock
 
 X68000 用のパソコン通信ホストプログラム **NET-COCK** と互換の動きをするホストを、C 言語で新しく書いたものです。
-macOS / Linux で動き、TCP (telnet)、モデム (シリアル)、WebSocket (ブラウザのソフトウェアモデム [null-modem](https://github.com/GOROman/null-modem) から) で接続できます。
+macOS / Linux で動き、TCP (telnet)、モデム (シリアル)、WebSocket で接続できます。
 
 - NET-COCK のコマンド体系をそのまま使えます (BREAD / BWRITE / RALL / MREAD / MWRITE / CHAT / LLIST / LOG …)。コマンドは省略でき、前方一致で最初に当たるものが選ばれます
 - メッセージ ID の割り当ては NET-COCK の `MES.TXT` と同じです。お手持ちの `MES.TXT` / `MES_ESC.TXT` / `SYS_MES.DAT` / `HELP.TXT` を設定で指定すると、元と同じ文言・表示になります
