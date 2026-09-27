@@ -33,9 +33,28 @@
 ```
 modem1.path = /dev/cu.usbserial-XXXX
 modem1.baud = 9600
+modem1.flow = hardware
 modem1.init = ATZ; ATE0V1Q0X4&C1&D2S0=0
+modem1.answer = manual
+modem1.rings = 1
+modem1.carrier = both
+modem1.hangup = dtr
+modem1.connect_timeout = 60
 modem1.code = sjis
 ```
+
+| 項目 | 意味 | 既定値 |
+|---|---|---|
+| `path` | シリアルのデバイスファイル | (必須) |
+| `baud` | DTE 速度 | `9600` |
+| `flow` | フロー制御 `none` / `hardware` / `software` | `hardware` |
+| `init` | 初期化コマンド (`;` で区切って順に送り、`OK` を待つ) | `ATZ; ATE0V1Q0X4&C1&D2S0=0` (`answer = auto` なら `S0=1`) |
+| `answer` | 着信の受け方 `manual` (`RING` で `ATA`) / `auto` (モデムの自動着信。`init` に `S0=1` を入れる) | `manual` |
+| `rings` | 何回目の `RING` で `ATA` するか | `1` |
+| `carrier` | キャリア断の検出 `dcd` / `text` (受信した `NO CARRIER`) / `both` | `both` |
+| `hangup` | 切り方 `dtr` (`&D2` で DTR を落とす) / `escape` (`+++` と `ATH0`) | `dtr` |
+| `connect_timeout` | `ATA` から `CONNECT` までの上限 (秒) | `60` |
+| `code` | この回線の文字コード `sjis` / `utf8` | (`default_code` と同じ) |
 
 - 起動すると初期化コマンドを 1 つずつ送って `OK` を待ち、着信を待ちます
 - `RING` が `rings` 回来たら `ATA` で応答し、`CONNECT` の後ろの速度 (例 `2400/V42BIS`) を LOG に残します
