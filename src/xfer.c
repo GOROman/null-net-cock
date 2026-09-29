@@ -5,6 +5,7 @@
  *   (SUM はデータの合計の下位 8 ビット、CRC は CRC-16/XMODEM を上位バイトから) が続く
  * - 受信側が NAK (SUM) / 'C' (CRC) / 'G' (YMODEM-g) を送って始める。再送を決めるのは受信側
  * - YMODEM の 0 番ブロックはファイル名・サイズ・更新時刻。全部 NUL の 0 番ブロックがバッチの終わり
+ * - 待っている間に ZMODEM のヘッダ (ZPAD ZDLE) が来たら zmodem.c に任せる
  */
 #include "xfer.h"
 
@@ -12,7 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-enum { SOH = 0x01, STX = 0x02, EOT = 0x04, ACK = 0x06, NAK = 0x15, CAN = 0x18, SUB = 0x1A };
+enum { SOH = 0x01, STX = 0x02, EOT = 0x04, ACK = 0x06, NAK = 0x15, CAN = 0x18, SUB = 0x1A, ZPAD = '*' };
 #define RETRY 10
 
 static unsigned short crc16(const unsigned char *p, size_t n) {
@@ -113,6 +114,20 @@ int xfer_recv(struct term *t, int proto, char *name, size_t namesz, unsigned cha
             if (put1(t, start) < 0) goto disc;
             continue;
         }
+        if (c == ZPAD && !started) {
+            /* sz (ZMODEM) の ZRQINIT。ZMODEM で受け取る */
+            do c = term_getc(t, 1000);
+            while (c == ZPAD);
+            if (c == T_DISCONNECT) goto disc;
+            if (c != CAN) continue;
+            free(buf);
+            int r = zm_recv(t, name, namesz, data, len);
+            if (r == T_DISCONNECT) return r;
+            if (r > 0 && r != XF_CANCEL) cancel(t);
+            term_purge(t, 500);
+            term_set_binary(t, false);
+            return r;
+        }
         if (c != SOH && c != STX) continue; /* ゴミは読み捨てる */
         started = true;
         int size = c == SOH ? 128 : 1024, blk = -1;
@@ -198,12 +213,18 @@ disc:
 
 /* ------------------------------------------------------------ 送信 */
 
-/* 受信側の開始の合図を待つ。'C' / NAK / 'G'、中止は XF_CANCEL */
+/* 受信側の開始の合図を待つ。'C' / NAK / 'G'、ZMODEM の rz は 'Z'、中止は XF_CANCEL */
 static int wait_start(struct term *t, int timeout_s) {
     for (int i = 0; i < timeout_s; i++) {
         int c = term_getc(t, 1000);
         if (c == T_DISCONNECT) return T_DISCONNECT;
         if (c == 'C' || c == NAK || c == 'G') return c;
+        if (c == ZPAD) {
+            do c = term_getc(t, 1000);
+            while (c == ZPAD);
+            if (c == T_DISCONNECT) return T_DISCONNECT;
+            if (c == CAN) return 'Z';
+        }
         if (c == CAN && term_getc(t, 1000) == CAN) return -XF_CANCEL;
     }
     return -XF_FAIL;
@@ -276,9 +297,13 @@ int xfer_send(struct term *t, int proto, const struct xfile *files, int n) {
     int r;
     term_set_binary(t, true);
     term_purge(t, 200);
-    int c = wait_start(t, 60);
+    int c = proto == XS_ZMODEM ? 'Z' : wait_start(t, 60);
     if (c < 0) {
         r = c == T_DISCONNECT ? T_DISCONNECT : -c;
+        goto out;
+    }
+    if (c == 'Z') {
+        r = zm_send(t, files, proto == XS_YMODEM || proto == XS_ZMODEM ? n : 1);
         goto out;
     }
     bool crc = c != NAK, gmode = c == 'G';

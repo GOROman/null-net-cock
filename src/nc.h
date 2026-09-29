@@ -135,6 +135,8 @@ int term_yesno(struct term *t, const char *prompt);
 /* バイナリ転送用: 1 バイト読む (0〜255。時間切れは T_NODATA)、IAC をエスケープして書く */
 #define T_NODATA (-100)
 int term_getc(struct term *t, int timeout_ms);
+/* まとめて読む (1〜max バイト。時間切れは T_NODATA) */
+int term_read_bin(struct term *t, unsigned char *buf, size_t max, int timeout_ms);
 int term_write_bin(struct term *t, const void *buf, size_t len);
 void term_set_binary(struct term *t, bool on);
 void term_purge(struct term *t, int quiet_ms);
