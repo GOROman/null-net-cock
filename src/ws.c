@@ -103,6 +103,7 @@ static bool header(const char *req, const char *name, char *out, size_t sz) {
 static int handshake(int fd, char *peer, size_t psz) {
     char req[8192];
     size_t len = 0;
+    req[0] = 0; /* 最初の strstr の前に空にしておく (未初期化だとハンドシェイクを読まずに進むことがある) */
     while (!strstr(req, "\r\n\r\n")) {
         struct pollfd pf = {fd, POLLIN, 0};
         if (poll(&pf, 1, 10000) <= 0) return -1;
@@ -114,6 +115,9 @@ static int handshake(int fd, char *peer, size_t psz) {
     }
     char key[128], ip[64];
     if (!header(req, "Sec-WebSocket-Key", key, sizeof key)) {
+        char up[32];
+        if (header(req, "Upgrade", up, sizeof up)) /* 起動確認などのただの GET は記録しない */
+            nc_log("WebSocket: Sec-WebSocket-Key の無い Upgrade を断りました (%.*s)", (int)strcspn(req, "\r\n"), req);
         static const char bad[] = "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n";
         write_all(fd, bad, sizeof bad - 1);
         return -1;
