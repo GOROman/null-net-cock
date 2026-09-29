@@ -537,26 +537,44 @@ bool mail_is_for(const struct msg *m, int user, int *slot) {
     return false;
 }
 
-/* ファイルメンテナンス: 削除済み (と親が消えたリプライ) と、保存数を超えた古いものを取り除いて番号を詰める */
+/* 容量を超えているときに外す 1 件を選ぶ。一番古いものを、そのボードの残りが最低保存数 (keep) を
+   下回らない範囲から選ぶ。keep が 0 のボード (削除なし) とメールは対象にしない。
+   only_files が true ならプログラムボードのファイルが付いているものだけ。無ければ -1 */
+static int filem_victim(const int *alive, bool only_files) {
+    int best = -1;
+    for (int i = 0; i < g_nmsgs; i++) {
+        const struct msg *m = &g_msgs[i];
+        const struct board *b = &g_boards[m->board];
+        if (m->deleted || m->board == MAIL_BOARD || b->keep <= 0 || alive[m->board] <= b->keep) continue;
+        if (only_files && m->fsize <= 0) continue;
+        if (best < 0 || m->t < g_msgs[best].t) best = i;
+    }
+    return best;
+}
+
+/* ファイルメンテナンス: 削除済みのものを取り除いて番号を詰める。
+   「最低保存タイトル数」は下限で、古いものを外すのは本文またはファイルの合計が容量 (総ボードサイズ /
+   総 PDS サイズ) を超えているときだけ。外すのは一番古いものからで、どのボードも最低保存数より減らさない。
+   親が消えたリプライは残し、返信先だけ外す */
 int filem(void) {
-    for (int b = 0; b < MAX_BOARDS; b++) {
-        if (!g_boards[b].used) continue;
-        int keep = g_boards[b].keep, alive = board_count(b);
-        for (int i = 0; i < g_nmsgs && keep > 0 && alive > keep; i++)
-            if (g_msgs[i].board == b && !g_msgs[i].deleted) {
-                g_msgs[i].deleted = true;
-                alive--;
-            }
-        for (bool changed = true; changed;) {
-            changed = false;
-            for (int i = 0; i < g_nmsgs; i++) {
-                struct msg *m = &g_msgs[i];
-                if (m->board == b && !m->deleted && m->reply_to && !msg_get(b, m->reply_to)) {
-                    m->deleted = true;
-                    changed = true;
-                }
-            }
-        }
+    int alive[MAX_BOARDS] = {0};
+    for (int i = 0; i < g_nmsgs; i++)
+        if (!g_msgs[i].deleted) alive[g_msgs[i].board]++;
+    long body = total_body_bytes(), pds = total_pds_bytes();
+    while (body > g_sys.board_size) {
+        int v = filem_victim(alive, false);
+        if (v < 0) break;
+        g_msgs[v].deleted = true;
+        alive[g_msgs[v].board]--;
+        body -= g_msgs[v].len;
+        pds -= g_msgs[v].fsize;
+    }
+    while (pds > g_sys.pds_size) {
+        int v = filem_victim(alive, true);
+        if (v < 0) break;
+        g_msgs[v].deleted = true;
+        alive[g_msgs[v].board]--;
+        pds -= g_msgs[v].fsize;
     }
     int removed = 0;
     int *newseq = calloc((size_t)g_nmsgs + 1, sizeof(int));
@@ -564,6 +582,16 @@ int filem(void) {
     for (int b = 0; b < MAX_BOARDS; b++) next[b] = 1;
     for (int i = 0; i < g_nmsgs; i++)
         if (!g_msgs[i].deleted) newseq[i] = next[g_msgs[i].board]++;
+    /* リプライの返信先の新しい番号 (親が消えていれば 0)。詰め直しで g_msgs を書き換える前に決めておく */
+    int *newreply = calloc((size_t)g_nmsgs + 1, sizeof(int));
+    for (int i = 0; i < g_nmsgs; i++) {
+        if (g_msgs[i].deleted || !g_msgs[i].reply_to) continue;
+        for (int k = 0; k < g_nmsgs; k++)
+            if (g_msgs[k].board == g_msgs[i].board && g_msgs[k].seq == g_msgs[i].reply_to && !g_msgs[k].deleted) {
+                newreply[i] = newseq[k];
+                break;
+            }
+    }
     /* 既読位置を新しい番号に合わせる */
     for (int u = 0; u < g_nusers; u++)
         for (int b = 0; b < MAX_BOARDS; b++) {
@@ -594,12 +622,7 @@ int filem(void) {
             }
             continue;
         }
-        if (m.reply_to) {
-            int nr = 0;
-            for (int k = 0; k < g_nmsgs; k++)
-                if (g_msgs[k].board == m.board && g_msgs[k].seq == m.reply_to && !g_msgs[k].deleted) nr = newseq[k];
-            m.reply_to = nr;
-        }
+        m.reply_to = newreply[i];
         m.seq = newseq[i];
         g_msgs[w++] = m;
     }
@@ -609,6 +632,7 @@ int filem(void) {
     g_nmsgs = w;
     for (int b = 0; b < MAX_BOARDS; b++) if (g_boards[b].used) g_boards[b].next_seq = next[b];
     free(newseq);
+    free(newreply);
     db_save_msgs();
     db_save_boards();
     db_save_ptrs();
