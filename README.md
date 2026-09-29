@@ -7,7 +7,7 @@ macOS / Linux で動き、TCP (telnet)、モデム (シリアル)、WebSocket �
 - メッセージ ID の割り当ては NET-COCK の `MES.TXT` と同じです。お手持ちの `MES.TXT` / `MES_ESC.TXT` / `SYS_MES.DAT` / `HELP.TXT` を設定で指定すると、元と同じ文言・表示になります
 - 初期データも NET-COCK と同じで、ゲスト (ID 0) と SYSOP (ID 1、パスワード `ABC`) だけ、ボードはありません
 - 入会のときに聞く個人情報は設定で選べます。既定はハンドル名とパスワードだけ。X (旧 Twitter) のアカウントも登録できます
-- プログラムボード (PDS) に対応。XMODEM (SUM / CRC / 1K)・YMODEM・YMODEM-g でファイルを上げ下ろしでき、BATCH で YMODEM バッチ転送もできます
+- プログラムボード (PDS) に対応。XMODEM (SUM / CRC / 1K)・YMODEM・YMODEM-g・ZMODEM でファイルを上げ下ろしでき、BATCH で YMODEM / ZMODEM のバッチ転送もできます
 - データは SQLite (`data/net-cock.db`) に保存します。終了のシグナルを受けたときも保存してから終わります
 - 1 回線 1 スレッド、最大 128 回線
 - 端末の文字コードは Shift_JIS (既定) か UTF-8。全角文字の BS も正しく消えます (BS テストの結果に合わせる)

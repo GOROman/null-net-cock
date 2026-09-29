@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 /* ------------------------------------------------------------ 入出力の部品 */
@@ -208,8 +209,73 @@ static void notify_others(struct sess *s, int msg_id) {
     notice_broadcast(N_SYSTEM, text, s->no);
 }
 
+/* パスワード (または ID) を続けて LOCK_FAILS 回間違えた接続元は LOCK_SECS 秒つなげない。
+   接続元は回線の peer (WebSocket なら中継が付けた元のアドレス) の最初の語。回線を切ってかけ直しても数え続ける */
+#define LOCK_FAILS 5
+#define LOCK_SECS (15 * 60)
+#define LOCK_SLOTS 256
+static struct {
+    char ip[64];
+    int fails;
+    time_t last, until;
+} g_badpw[LOCK_SLOTS];
+
+static void peer_ip(const struct sess *s, char *out, size_t sz) {
+    snprintf(out, sz, "%.*s", (int)strcspn(s->peer, " "), s->peer);
+}
+
+/* 締め出し中なら残り秒数。g_lock を持って呼ぶ */
+static long badpw_left(const char *ip) {
+    time_t now = time(NULL);
+    for (int i = 0; i < LOCK_SLOTS; i++)
+        if (g_badpw[i].ip[0] && !strcmp(g_badpw[i].ip, ip) && g_badpw[i].until > now) return (long)(g_badpw[i].until - now);
+    return 0;
+}
+
+/* 間違えた (ok = false) / 入れた (ok = true) を記録する。g_lock を持って呼ぶ */
+static void badpw_note(const char *ip, bool ok) {
+    if (!ip[0]) return;
+    time_t now = time(NULL);
+    int slot = -1, oldest = 0;
+    for (int i = 0; i < LOCK_SLOTS; i++) {
+        if (g_badpw[i].ip[0] && !strcmp(g_badpw[i].ip, ip)) {
+            slot = i;
+            break;
+        }
+        if (g_badpw[i].last < g_badpw[oldest].last) oldest = i;
+    }
+    if (ok) {
+        if (slot >= 0) memset(&g_badpw[slot], 0, sizeof g_badpw[slot]);
+        return;
+    }
+    if (slot < 0) {
+        slot = oldest;
+        memset(&g_badpw[slot], 0, sizeof g_badpw[slot]);
+        snprintf(g_badpw[slot].ip, sizeof g_badpw[slot].ip, "%s", ip);
+    }
+    if (now - g_badpw[slot].last > LOCK_SECS) g_badpw[slot].fails = 0; /* 間が空いたら数え直す */
+    g_badpw[slot].last = now;
+    if (++g_badpw[slot].fails >= LOCK_FAILS) {
+        g_badpw[slot].fails = 0;
+        g_badpw[slot].until = now + LOCK_SECS;
+        nc_log("%s はパスワードを %d 回続けて間違えたので %d 分つなげません", ip, LOCK_FAILS, LOCK_SECS / 60);
+    }
+}
+
+static int locked_out(struct sess *s, const char *ip) {
+    pthread_mutex_lock(&g_lock);
+    long left = badpw_left(ip);
+    pthread_mutex_unlock(&g_lock);
+    if (!left) return 0;
+    out(s, "\nパスワードを続けて間違えたため、しばらくつなげません (あと %ld 分)。\n", (left + 59) / 60);
+    return 1;
+}
+
 /* ID とパスワードを聞く。成功したら s->uid に入れて 0 */
 static int login(struct sess *s) {
+    char ip[64];
+    peer_ip(s, ip, sizeof ip);
+    if (locked_out(s, ip)) return T_DISCONNECT;
     CHK(out(s, "\n%s\n", g_sys.sysmes[0]));
     for (int tries = 0; tries < 3;) {
         char id[32], pw[32];
@@ -249,12 +315,15 @@ static int login(struct sess *s) {
                 if (i != s->no && g_online[i].used && !strcmp(g_online[i].id, idbuf)) result = 7;
         }
         int uid = u ? u->id : -1;
+        if (result == 2 || result == 3) badpw_note(ip, false);
+        else if (result == 0) badpw_note(ip, true);
         pthread_mutex_unlock(&g_lock);
         if (result == 0) {
             s->uid = uid;
             return 0;
         }
         CHK(outm_nl(s, result));
+        if (locked_out(s, ip)) return T_DISCONNECT;
         if (result == 4 || result == 5 || result == 7) return T_DISCONNECT;
         tries++;
     }

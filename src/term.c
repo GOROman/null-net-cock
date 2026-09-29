@@ -465,6 +465,33 @@ int term_getc(struct term *t, int timeout_ms) {
     }
 }
 
+int term_read_bin(struct term *t, unsigned char *buf, size_t max, int timeout_ms) {
+    for (;;) {
+        if (t->in_len > 0) {
+            size_t n = t->in_len < max ? t->in_len : max;
+            memcpy(buf, t->in, n);
+            memmove(t->in, t->in + n, t->in_len - n);
+            t->in_len -= n;
+            return (int)n;
+        }
+        struct pollfd pf = {t->fd, POLLIN, 0};
+        int r = poll(&pf, 1, timeout_ms);
+        if (r < 0) {
+            if (errno == EINTR) continue;
+            return T_DISCONNECT;
+        }
+        if (r == 0) return T_NODATA;
+        unsigned char tmp[2048];
+        ssize_t n = read(t->fd, tmp, sizeof tmp);
+        if (n <= 0) {
+            t->closed = true;
+            return T_DISCONNECT;
+        }
+        t->last_input = time(NULL);
+        telnet_filter(t, tmp, (size_t)n);
+    }
+}
+
 int term_write_bin(struct term *t, const void *buf, size_t len) {
     const unsigned char *p = buf;
     unsigned char out[4096];

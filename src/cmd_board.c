@@ -390,7 +390,8 @@ fail:
 
 /* ------------------------------------------------------------ ダウンロード・バッチ */
 
-static int download(struct sess *s, int board, int seq, bool ymodem) {
+/* how: 'X' XMODEM / 'Y' YMODEM / 'Z' ZMODEM */
+static int download(struct sess *s, int board, int seq, int how) {
     pthread_mutex_lock(&g_lock);
     struct msg *m = msg_get(board, seq);
     bool ok = m && m->fid;
@@ -404,12 +405,13 @@ static int download(struct sess *s, int board, int seq, bool ymodem) {
     }
     pthread_mutex_unlock(&g_lock);
     if (!ok) return outm_nl(s, 307);
-    int proto = XS_YMODEM, r;
-    if (!ymodem) {
+    int proto = how == 'Z' ? XS_ZMODEM : XS_YMODEM, r;
+    if (how == 'X') {
         if ((r = yn(s, 315)) < 0) return r;
         proto = r ? XS_X1K : XS_X128;
     }
-    CHK(outm_nl(s, proto == XS_X128 ? 316 : proto == XS_X1K ? 317 : 318));
+    if (proto == XS_ZMODEM) CHK(out(s, "ZMODEM で送ります。受け取りを始めてください (Ctrl-X で中止)。\n"));
+    else CHK(outm_nl(s, proto == XS_X128 ? 316 : proto == XS_X1K ? 317 : 318));
     pthread_mutex_lock(&g_lock);
     size_t len;
     unsigned char *data = file_get(fid, &len);
@@ -458,7 +460,7 @@ static int batch_list(struct sess *s) {
     return out(s, "%s%ld\n", M(327), total);
 }
 
-static int batch_send(struct sess *s) {
+static int batch_send(struct sess *s, int proto) {
     struct xfile f[MAX_BATCH];
     unsigned char *bufs[MAX_BATCH];
     char names[MAX_BATCH][16];
@@ -476,7 +478,7 @@ static int batch_send(struct sess *s) {
     }
     pthread_mutex_unlock(&g_lock);
     online_set_place(s->no, "BATCH");
-    int r = n ? xfer_send(s->t, XS_YMODEM, f, n) : XF_FAIL;
+    int r = n ? xfer_send(s->t, proto, f, n) : XF_FAIL;
     for (int i = 0; i < n; i++) free(bufs[i]);
     if (r == 0) {
         pthread_mutex_lock(&g_lock);
@@ -499,9 +501,11 @@ int cmd_batch(struct sess *s, const char *arg) {
         CHK(ask(s, 323, a, sizeof a, RL_UPPER));
         switch (a[0]) {
         case 'Y':
+        case 'Z':
         case 'O': {
-            CHK(outm_nl(s, a[0] == 'Y' ? 328 : 333));
-            int r = batch_send(s);
+            if (a[0] == 'Z') CHK(out(s, "ZMODEM でまとめて送ります。受け取りを始めてください (Ctrl-X で中止)。\n"));
+            else CHK(outm_nl(s, a[0] == 'Y' ? 328 : 333));
+            int r = batch_send(s, a[0] == 'Z' ? XS_ZMODEM : XS_YMODEM);
             if (r < 0) return r;
             CHK(outm_nl(s, r == 0 ? 332 : 331));
             if (a[0] == 'O' && r == 0) return T_DISCONNECT;
@@ -793,8 +797,9 @@ int read_board(struct sess *s, int board, int mode) {
             break;
         case 'X':
         case 'Y':
+        case 'Z':
             if (!prog || !cur) CHK(outm_nl(s, 307));
-            else CHK(download(s, board, cur, c == 'Y'));
+            else CHK(download(s, board, cur, c));
             break;
         case 'S':
             if (!prog || !cur) CHK(outm_nl(s, 307));

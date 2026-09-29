@@ -15,7 +15,12 @@ build/%.o: src/%.c src/nc.h src/db.h src/msg.h src/session.h src/xfer.h src/help
 	@mkdir -p build
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-test: null-net-cock
+build/filem_test: tests/filem_test.c src/db.c src/util.c src/db.h src/nc.h
+	@mkdir -p build
+	$(CC) $(CFLAGS) -Isrc -o $@ tests/filem_test.c src/db.c src/util.c $(LDLIBS)
+
+test: null-net-cock build/filem_test
+	./build/filem_test
 	python3 tests/e2e.py ./null-net-cock
 	python3 tests/xfer.py ./null-net-cock
 	python3 tests/modem.py ./null-net-cock

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""プログラムボードの転送テスト: lrzsz (sz / rz) と XMODEM / YMODEM でやり取りする"""
+"""プログラムボードの転送テスト: lrzsz (sz / rz) と XMODEM / YMODEM / ZMODEM でやり取りする"""
 import os
 import select
 import shutil
@@ -86,6 +86,11 @@ def main():
     payload = bytes(range(256)) * 37 + b"\xff\xff\r\n\r\x00end"  # IAC と CR を含む
     with open(src, "wb") as f:
         f.write(payload)
+    # ZMODEM 用: 何度もサブパケットを流す大きさ。ZDLE (0x18) や XON なども含む
+    big_src = os.path.join(tmp, "BIG.DAT")
+    big = os.urandom(300 * 1024) + b"\x18\x18\x18\x18\x18\x11\x13*\x18B00"
+    with open(big_src, "wb") as f:
+        f.write(big)
     srv = subprocess.Popen([e2e.BIN, "-c", conf], stderr=None if os.environ.get("VERBOSE") else subprocess.DEVNULL)
     try:
         e2e.wait_port()
@@ -135,6 +140,36 @@ def main():
         assert rc == 0, f"sz -X {rc}"
         a.expect("書き込みました")
 
+        # ZMODEM で上げる (YMODEM で待っているところに sz を ZMODEM で)
+        a.talk(">", "BW PDS")
+        a.talk("タイトル", "ZMODEM で上げたもの")
+        a.expect(">\t")
+        a.send(".")
+        a.talk("書き込みますか", "Y")
+        a.talk("YMODEM で送りますか", "y")
+        a.talk("YMODEM-g にしますか", "n")
+        a.expect("中止)。")
+        rc = relay(a, ["sz", "-q", big_src], tmp)
+        assert rc == 0, f"sz (ZMODEM) {rc}"
+        got = a.expect("書き込みました")
+        assert "BIG.DAT" in got and str(len(big)) in got, got
+
+        # XMODEM で待っていても ZMODEM に切り替わる
+        a.talk(">", "BW PDS")
+        a.talk("タイトル", "ZMODEM その 2")
+        a.expect(">\t")
+        a.send(".")
+        a.talk("書き込みますか", "Y")
+        a.talk("YMODEM で送りますか", "n")
+        a.talk("CRC にしますか", "n")
+        a.talk("ファイル名＞", "dummy.bin")
+        a.talk("いいですか", "y")
+        a.expect("中止)。")
+        rc = relay(a, ["sz", "-q", src], tmp)
+        assert rc == 0, f"sz (ZMODEM, XMODEM 待ち) {rc}"
+        got = a.expect("書き込みました")
+        assert "SAMPLE.BIN" in got and str(len(payload)) in got, got
+
         # YMODEM で下ろす
         out = os.path.join(tmp, "down")
         os.mkdir(out)
@@ -178,6 +213,54 @@ def main():
         assert names == ["SAMPLE.BIN", "X.BIN"], names
         for n in os.listdir(out2):
             with open(os.path.join(out2, n), "rb") as f:
+                assert f.read() == payload, n
+
+        # ZMODEM で下ろす (Z でホストから始める)
+        zout = os.path.join(tmp, "zdown")
+        os.mkdir(zout)
+        a.talk(">", "BREAD PDS")
+        a.talk("Command", "3")
+        got = a.expect("Command")
+        assert "[BIG     .DAT]" in got, got
+        a.send("Z")
+        a.expect("中止)。")
+        rc = relay(a, ["rz", "-q", "-y", "-u"], zout)
+        assert rc == 0, f"rz (ZMODEM) {rc}"
+        a.expect("転送が終わりました。")
+        with open(os.path.join(zout, "BIG.DAT"), "rb") as f:
+            assert f.read() == big, "ZMODEM で受け取った内容が違います"
+        # Y (YMODEM) を選んでも rz が ZMODEM なら ZMODEM で送る
+        os.remove(os.path.join(zout, "BIG.DAT"))
+        a.talk("Command", "Y")
+        a.expect("中止)。")
+        rc = relay(a, ["rz", "-q", "-y", "-u"], zout)
+        assert rc == 0, f"rz (ZMODEM, YMODEM 選択) {rc}"
+        a.expect("転送が終わりました。")
+        with open(os.path.join(zout, "BIG.DAT"), "rb") as f:
+            assert f.read() == big, "ZMODEM (自動) で受け取った内容が違います"
+        a.talk("Command", "Q")
+
+        # バッチを ZMODEM で
+        a.talk(">", "BREAD PDS")
+        a.talk("Command", "1")
+        a.talk("Command", "S")
+        a.expect("バッチリストに加えました。")
+        a.talk("Command", "2")
+        a.talk("Command", "S")
+        a.expect("バッチリストに加えました。")
+        a.talk("Command", "Q")
+        a.talk(">", "BATCH")
+        a.talk("バッチ転送 (Y/O/N/D/L/C/?):", "Z")
+        a.expect("中止)。")
+        out3 = os.path.join(tmp, "zbatch")
+        os.mkdir(out3)
+        rc = relay(a, ["rz", "-q", "-y", "-u"], out3)
+        assert rc == 0, f"rz batch (ZMODEM) {rc}"
+        a.expect("転送が終わりました。")
+        names = sorted(os.listdir(out3))
+        assert names == ["SAMPLE.BIN", "X.BIN"], names
+        for n in names:
+            with open(os.path.join(out3, n), "rb") as f:
                 assert f.read() == payload, n
         print("OK: 転送テスト通過")
     finally:
